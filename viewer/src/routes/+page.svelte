@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { onMount, tick } from 'svelte';
+	import { fly, fade } from 'svelte/transition';
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import type { Map as MLMap, MapMouseEvent } from 'maplibre-gl';
-	import { MANIFEST_URL, GRADUATED_RAMP, type Layer, type Manifest } from '$lib/config';
+	import { MANIFEST_URL, THEMES, DEFAULT_THEME, type Layer, type Manifest, type Theme } from '$lib/config';
 	import {
 		createMap,
 		addLayer,
@@ -11,12 +11,15 @@
 		fitToLayer,
 		workspaceColor,
 		setHighlight,
+		ensureHighlight,
 		inspectableLayerIds,
 		addDem,
 		removeDem,
-		setDemVariant,
 		setBasemapVisible,
-		setRoadsSubdued,
+		tuneBasemap,
+		tintBasemap,
+		setThemeRamps,
+		applyTheme,
 		extrudableFields,
 		defaultExtrudeField,
 		restyleExtrusion,
@@ -27,6 +30,7 @@
 		type ExtrudeOpts,
 		type FieldStats
 	} from '$lib/map';
+	import { fieldDef, fieldLabel, fieldTitle } from '$lib/fields';
 	import { m } from '$lib/paraglide/messages';
 	import { getLocale, setLocale, locales } from '$lib/paraglide/runtime';
 	import rfLogo from '$lib/assets/recovered-factory.png';
@@ -37,12 +41,14 @@
 	let map: MLMap | undefined;
 	let manifest = $state<Manifest | null>(null);
 	let enabled = $state<Record<string, boolean>>({});
-	let info = $state<Record<string, boolean>>({});
+	let infoLayer = $state<Layer | null>(null); // layer whose details popup is open
 	let search = $state('');
 	let searchEl: HTMLInputElement | undefined;
 	let dem = $state(false);
-	let demVariant = $state(''); // chosen relief color ramp id
 	let baseVisible = $state(true); // Protomaps basemap shown?
+	// The active theme bundles the basemap flavor, the paired relief variant, the
+	// data color ramps, the page background, and road/boundary tuning.
+	let activeTheme = $state<Theme>(DEFAULT_THEME);
 	// Per-layer 3D: which enabled layers extrude, and by which numeric field.
 	let extrude = $state<Record<string, boolean>>({});
 	let extrudeField = $state<Record<string, string>>({});
@@ -52,8 +58,17 @@
 	// category counts) backing the contextual legend for each colored layer.
 	let colorField = $state<Record<string, string>>({});
 	let fieldStats = $state<Record<string, FieldStats>>({});
+	// The catalog has 350+ layers; this is the key of the layer the "Surprise me"
+	// button last revealed, so pressing it again rotates that one slot.
+	let randomKey = $state<string | null>(null);
+	let aboutOpen = $state(false); // the About popover
 
 	const anyExtruded = $derived(Object.values(extrude).some(Boolean));
+
+	// Currently-enabled layers, for the always-visible "active layers" chip row —
+	// otherwise (esp. after a Surprise-me roll) there's no at-a-glance signal of
+	// what's on the map among the 350+ catalog rows.
+	const enabledLayers = $derived((manifest?.layers ?? []).filter((l) => enabled[l.key]));
 
 	function optsFor(l: Layer): ExtrudeOpts {
 		return {
@@ -93,10 +108,24 @@
 		}
 	}
 
-	/** CSS gradient mirroring the numeric ramp, for the legend swatch bar. */
-	const rampGradient = `linear-gradient(to right, ${GRADUATED_RAMP.map(
-		([t, c]) => `${c} ${Math.round(t * 100)}%`
-	).join(', ')})`;
+	/** CSS gradient mirroring the active theme's numeric ramp, for the legend bar. */
+	const rampGradient = $derived(
+		`linear-gradient(to right, ${activeTheme.graduatedRamp
+			.map(([t, c]) => `${c} ${Math.round(t * 100)}%`)
+			.join(', ')})`
+	);
+
+	const themeLabel = (t: Theme) => (locale === 'en' ? t.label_en : t.label_es);
+
+	// Friendly attribute-field labels (see $lib/fields): show wherever a raw field
+	// name would, falling back to the raw name when a field isn't in the glossary.
+	const fLabel = (ws: string | undefined, f: string) => fieldLabel(ws, f, locale);
+	const fTitle = (ws: string | undefined, f: string) => fieldTitle(ws, f, locale);
+	const fHasDef = (ws: string | undefined, f: string) => !!fieldDef(ws, f);
+	const fDesc = (ws: string | undefined, f: string) => {
+		const d = fieldDef(ws, f);
+		return d ? ((locale === 'en' ? d.desc_en : d.desc_es) ?? '') : '';
+	};
 
 	/** Compact number formatting for the histogram min/max labels. */
 	function fmt(n: number): string {
@@ -182,6 +211,15 @@
 	const abstractOf = (l: Layer) =>
 		(locale === 'en' ? l.abstract_en || l.abstract_es : l.abstract_es || l.abstract_en) ?? '';
 
+	/** The identifying tail of a title. Titles read "Area - Category - Sub:
+	 *  Specific name"; the part after the last ':' is what actually distinguishes
+	 *  the layer (front-truncating loses it). Falls back to the full title. */
+	const leafTitle = (l: Layer) => {
+		const t = titleOf(l);
+		const i = t.lastIndexOf(':');
+		return i >= 0 && t.slice(i + 1).trim() ? t.slice(i + 1).trim() : t;
+	};
+
 	// Layers grouped by workspace, filtered by the search box.
 	const groups = $derived.by(() => {
 		if (!manifest) return [] as { workspace: string; layers: Layer[] }[];
@@ -207,6 +245,7 @@
 			extrude[l.key] = false;
 			delete colorField[l.key];
 			delete fieldStats[l.key];
+			if (l.key === randomKey) randomKey = null;
 			syncPitch();
 		} else {
 			addLayer(map, l, optsFor(l));
@@ -224,8 +263,53 @@
 		extrude = {};
 		colorField = {};
 		fieldStats = {};
+		randomKey = null;
 		syncPitch();
 		closeInspector();
+	}
+
+	/** Reveal a random serveable layer and fly to it — a one-tap way to explore the
+	 *  350+ layer catalog. Each press drops the previous random pick (only the one
+	 *  we added) and rotates to a fresh, not-currently-enabled layer. */
+	async function surpriseMe() {
+		if (!map || !manifest) return;
+		const eligible = manifest.layers.filter(
+			(l) => l.serve !== 'empty' && l.url && l.key !== randomKey && !enabled[l.key]
+		);
+		if (!eligible.length) return;
+		// Workspace-balanced: pick a random workspace first, then a layer within it,
+		// so a 1-layer workspace gets the same shot as the 105-layer pot_2014 (which
+		// would otherwise win ~30% of uniform rolls).
+		const byWs = new Map<string, typeof eligible>();
+		for (const l of eligible) {
+			(byWs.get(l.workspace) ?? byWs.set(l.workspace, []).get(l.workspace)!).push(l);
+		}
+		const workspaces = [...byWs.keys()];
+		const group = byWs.get(workspaces[Math.floor(Math.random() * workspaces.length)])!;
+		const pick = group[Math.floor(Math.random() * group.length)];
+		// Drop the previous random pick if it's still the one we added.
+		if (randomKey && enabled[randomKey]) {
+			removeLayer(map, randomKey);
+			enabled[randomKey] = false;
+			extrude[randomKey] = false;
+			delete colorField[randomKey];
+			delete fieldStats[randomKey];
+		}
+		randomKey = pick.key;
+		addLayer(map, pick, optsFor(pick));
+		enabled[pick.key] = true;
+		fitToLayer(map, pick);
+		syncPitch();
+		// Surface it in the list too: clear any filter, expand the sheet, open the
+		// pick's workspace group, and scroll its row into view so it's not lost in
+		// the 350+ catalog.
+		search = '';
+		if (sheetH < halfH) sheetH = halfH;
+		await tick();
+		const det = document.getElementById(`ws-${pick.workspace}`) as HTMLDetailsElement | null;
+		if (det) det.open = true;
+		await tick();
+		document.getElementById(`row-${pick.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	}
 
 	/** Pitch the camera while anything is extruded, flatten when nothing is. */
@@ -266,10 +350,10 @@
 	function toggleDem() {
 		if (!map) return;
 		dem = !dem;
-		if (dem) addDem(map, manifest?.dem, demVariant);
+		if (dem) addDem(map, manifest?.dem, activeTheme.variant, activeTheme.reliefOpacity);
 		else removeDem(map);
-		// Roads-over-relief read too strong, so dim them while relief is shown.
-		setRoadsSubdued(map, dem && baseVisible);
+		// Roads-over-relief read too strong, so tune them while relief is shown.
+		tuneBasemap(map, activeTheme, dem && baseVisible);
 	}
 
 	/** Show/hide the entire Protomaps basemap (data + relief stay). */
@@ -277,17 +361,51 @@
 		if (!map) return;
 		baseVisible = !baseVisible;
 		setBasemapVisible(map, baseVisible);
-		setRoadsSubdued(map, dem && baseVisible);
+		tuneBasemap(map, activeTheme, dem && baseVisible);
 	}
 
-	/** Switch the relief color ramp live (no re-add). */
-	function pickDemVariant(id: string) {
-		demVariant = id;
-		if (map && dem && manifest?.dem) setDemVariant(map, manifest.dem, id);
+	/** Switch the whole map to another theme (basemap flavor, relief variant, data
+	 *  ramps, page bg, road/boundary tuning). Light themes switch live; only the
+	 *  Dark theme flips the flavor, which restyles the basemap and triggers
+	 *  `reapply()`. */
+	function pickTheme(t: Theme) {
+		if (!map || t.id === activeTheme.id) return;
+		activeTheme = t;
+		applyTheme(map, t, {
+			reapply,
+			demOn: dem,
+			baseVisible,
+			dem: manifest?.dem,
+			recolorAll
+		});
 	}
 
-	const demLabel = (v: { label_es: string; label_en: string }) =>
-		locale === 'en' ? v.label_en : v.label_es;
+	/** Rebuild every app-owned layer after a basemap restyle (Dark toggle): relief
+	 *  → enabled data layers → highlight → pitch. `applyTheme` re-tunes + recolors
+	 *  right after. Reads the already-updated `activeTheme`. */
+	function reapply() {
+		if (!map) return;
+		if (dem) addDem(map, manifest?.dem, activeTheme.variant, activeTheme.reliefOpacity);
+		const byKey = new Map((manifest?.layers ?? []).map((l) => [l.key, l]));
+		for (const key of Object.keys(enabled)) {
+			if (!enabled[key]) continue;
+			const l = byKey.get(key);
+			if (l) addLayer(map, l, optsFor(l));
+		}
+		ensureHighlight(map);
+		syncPitch();
+	}
+
+	/** Re-apply every colored layer's color expression with the new theme ramps. */
+	function recolorAll() {
+		if (!map) return;
+		const byKey = new Map((manifest?.layers ?? []).map((l) => [l.key, l]));
+		for (const key of Object.keys(colorField)) {
+			const l = byKey.get(key);
+			if (l && enabled[l.key]) setLayerColor(map, l, colorField[key] || null);
+		}
+		refreshAllStats();
+	}
 
 	function onMapClick(e: MapMouseEvent) {
 		if (!map) return;
@@ -327,9 +445,13 @@
 	onMount(() => {
 		// Desktop: open the layer sheet expanded by default (it only closes when the
 		// user drags it down). Phones keep the compact peek so the map stays visible.
-		if (window.innerWidth >= 768) sheetH = Math.round(window.innerHeight * 0.92);
+		if (window.innerWidth >= 768) sheetH = Math.round(window.innerHeight * 0.72);
+		setThemeRamps(activeTheme); // active data ramps in sync with the default theme
 		map = createMap(mapEl);
 		if (import.meta.env.DEV) (window as unknown as { __map: MLMap }).__map = map;
+		// Tint the base to the default theme once its layers exist (the raw light
+		// flavor doesn't match arena's tint).
+		map.on('load', () => map && tintBasemap(map, activeTheme));
 		map.on('click', onMapClick);
 		map.on('mousemove', onMapMove);
 		// Once panning/zooming/tiling settles, refresh colored-layer stats so the
@@ -339,24 +461,43 @@
 			.then((res) => res.json())
 			.then((data) => {
 				manifest = data;
-				demVariant = data.dem?.default ?? data.dem?.variants?.[0]?.id ?? '';
 			})
 			.catch((err) => console.error('failed to load manifest', err));
 		return () => map?.remove();
 	});
 </script>
 
-<svelte:window bind:innerHeight={innerH} bind:innerWidth={innerW} />
+<svelte:window
+	bind:innerHeight={innerH}
+	bind:innerWidth={innerW}
+	onkeydown={(e) => {
+		if (e.key !== 'Escape') return;
+		if (infoLayer) infoLayer = null;
+		else if (aboutOpen) aboutOpen = false;
+	}}
+/>
 
-<div class="shell">
+<div class="shell" style="--page-bg:{activeTheme.background}">
 	<div bind:this={mapEl} class="map"></div>
 
 	<!-- floating top overlay: title + language -->
 	<div class="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-3">
-		<div class="pointer-events-auto rounded-xl bg-white/90 px-3 py-1.5 shadow-lg backdrop-blur">
-			<h1 class="text-sm leading-tight font-semibold text-slate-800">{m.app_title()}</h1>
-			<p class="text-[11px] leading-tight text-slate-500">{m.app_subtitle()}</p>
-		</div>
+		<button
+			type="button"
+			class="pointer-events-auto flex items-center gap-4 rounded-xl bg-white/90 px-3 py-1.5 text-left shadow-lg backdrop-blur hover:bg-white"
+			title={m.about()}
+			aria-label={m.about()}
+			onclick={() => (aboutOpen = true)}
+		>
+			<span class="min-w-0">
+				<span class="flex items-center gap-1 text-sm leading-tight font-semibold text-slate-800">
+					{m.app_title()}
+					<span class="text-[13px] text-slate-400" aria-hidden="true">&#9432;</span>
+				</span>
+				<span class="block text-[11px] leading-tight text-slate-500">{m.app_subtitle()}</span>
+			</span>
+			<img src={rfLogo} alt="Recovered Factory" class="h-7 w-auto shrink-0 opacity-90" />
+		</button>
 		<div
 			class="pointer-events-auto flex gap-0.5 rounded-xl bg-white/90 p-1 shadow-lg backdrop-blur"
 			aria-label={m.language()}
@@ -403,12 +544,44 @@
 						onclick={clearSearch}>✕</button>
 				{/if}
 			</div>
-			<div class="mt-2 mb-2 flex items-center justify-between gap-3">
-				<p class="min-w-0 truncate text-[11px] text-slate-500">
-					{m.layers_count({ count: manifest?.generated_layers ?? 0 })} · {m.app_subtitle()}
-				</p>
-				<img src={rfLogo} alt="Recovered Factory" class="h-5 w-auto shrink-0 opacity-80 sm:h-8" />
-			</div>
+			<p class="mt-2 min-w-0 truncate text-[11px] text-slate-500">
+				{m.layers_count({ count: manifest?.generated_layers ?? 0 })}
+			</p>
+			<!-- active layers: at the top, visible even at peek, so you can see +
+			     manage what's on the map without scrolling the full catalog -->
+			{#if enabledLayers.length}
+				<div class="mt-1.5 mb-1 flex items-start gap-1.5">
+					<span class="mt-1 shrink-0 text-[10px] font-medium tracking-wide text-slate-400 uppercase"
+						>{m.active_layers()} ({enabledLayers.length})</span
+					>
+					<!-- wrap to ~two rows, scroll if more; show the layer's identifying
+					     leaf name (full title on hover) since titles are front-loaded -->
+					<div class="flex max-h-14 min-w-0 flex-1 flex-wrap gap-1 overflow-y-auto pr-1 pb-0.5">
+						{#each enabledLayers as l (l.key)}
+							<span
+								class="flex shrink-0 items-center gap-1 rounded-full bg-slate-100 py-0.5 pr-1 pl-1.5 text-[11px] text-slate-700
+								       {l.key === randomKey ? 'ring-1 ring-violet-300' : ''}"
+							>
+								<span
+									class="h-2 w-2 shrink-0 rounded-full"
+									style="background:{workspaceColor(l.workspace)}"
+								></span>
+								<button
+									type="button"
+									class="max-w-[13rem] truncate"
+									title="{titleOf(l)} — {m.zoom_to_layer()}"
+									onclick={() => map && fitToLayer(map, l)}>{leafTitle(l)}</button>
+								<button
+									type="button"
+									class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+									title={m.remove_layer()}
+									aria-label={m.remove_layer()}
+									onclick={() => toggle(l)}>✕</button>
+							</span>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		</div>
 
 		<!-- expanded body: controls + grouped layer list -->
@@ -432,21 +605,13 @@
 						aria-pressed={baseVisible}
 						onclick={toggleBase}>{m.base()}</button>
 					<button
+						class="rounded-lg border border-violet-300 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-50"
+						title={m.surprise_hint()}
+						onclick={surpriseMe}>{randomKey ? `↻ ${m.surprise_again()}` : `🎲 ${m.surprise()}`}</button>
+					<button
 						class="ml-auto text-xs text-slate-500 underline hover:text-slate-700"
 						onclick={clearAll}>{m.clear_all()}</button>
 				</div>
-				{#if dem && manifest?.dem?.variants?.length}
-					<div class="mt-2 flex flex-wrap items-center gap-1">
-						{#each manifest.dem.variants as v (v.id)}
-							<button
-								class="rounded-full border px-2 py-0.5 text-[11px]
-								       {demVariant === v.id
-									? 'border-emerald-600 bg-emerald-600 text-white'
-									: 'border-slate-200 text-slate-600 hover:bg-slate-50'}"
-								onclick={() => pickDemVariant(v.id)}>{demLabel(v)}</button>
-						{/each}
-					</div>
-				{/if}
 				{#if anyExtruded}
 					<label class="mt-2 flex items-center gap-2 text-xs text-slate-500">
 						<span class="shrink-0">{m.exaggeration()}</span>
@@ -472,7 +637,7 @@
 					<p class="px-2 py-4 text-slate-400">{m.empty_results()}</p>
 				{:else}
 					{#each groups as group (group.workspace)}
-						<details class="mb-1" open={!!search}>
+						<details id="ws-{group.workspace}" class="mb-1" open={!!search}>
 							<summary
 								class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-slate-50"
 							>
@@ -485,7 +650,7 @@
 							</summary>
 							<ul class="mt-0.5 mb-1 ml-4 border-l border-slate-100 pl-2">
 								{#each group.layers as l (l.key)}
-									<li>
+									<li id="row-{l.key}">
 										<div class="flex items-start gap-1">
 											<label
 												class="flex min-w-0 flex-1 cursor-pointer items-start gap-2 rounded px-1.5 py-1 hover:bg-slate-50
@@ -509,21 +674,13 @@
 													</span>
 												</span>
 											</label>
-											{#if abstractOf(l)}
-												<button
-													class="mt-1 shrink-0 rounded px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700
-													       {info[l.key] ? 'bg-slate-100 text-slate-700' : ''}"
-													title={m.details()}
-													aria-label={m.details()}
-													aria-expanded={!!info[l.key]}
-													onclick={() => (info[l.key] = !info[l.key])}>&#9432;</button>
-											{/if}
+											<button
+												class="mt-1 shrink-0 rounded px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+												title={m.details()}
+												aria-label={m.details()}
+												aria-haspopup="dialog"
+												onclick={() => (infoLayer = l)}>&#9432;</button>
 										</div>
-										{#if info[l.key]}
-											<p class="mt-0.5 mb-1 ml-7 pr-2 text-[11px] leading-snug text-slate-500">
-												{abstractOf(l) || m.no_description()}
-											</p>
-										{/if}
 										{#if enabled[l.key] && extrudableFields(l).length}
 											<div class="mt-0.5 mb-1 ml-7 flex items-center gap-1.5 pr-2">
 												<button
@@ -542,7 +699,7 @@
 														onchange={(e) => setExtrudeField(l, e.currentTarget.value)}
 													>
 														{#each extrudableFields(l) as f (f)}
-															<option value={f}>{f}</option>
+															<option value={f}>{fLabel(l.workspace, f)}</option>
 														{/each}
 													</select>
 												{/if}
@@ -562,12 +719,12 @@
 														<option value="">{m.color_flat()}</option>
 														{#if cf.numeric.length}
 															<optgroup label={m.color_numeric()}>
-																{#each cf.numeric as f (f)}<option value={f}>{f}</option>{/each}
+																{#each cf.numeric as f (f)}<option value={f}>{fLabel(l.workspace, f)}</option>{/each}
 															</optgroup>
 														{/if}
 														{#if cf.categorical.length}
 															<optgroup label={m.color_categories()}>
-																{#each cf.categorical as f (f)}<option value={f}>{f}</option>{/each}
+																{#each cf.categorical as f (f)}<option value={f}>{fLabel(l.workspace, f)}</option>{/each}
 															</optgroup>
 														{/if}
 													</select>
@@ -580,10 +737,10 @@
 															{#each s.bins as c, i (i)}
 																<div
 																	class="min-w-0 flex-1 rounded-sm"
-																	style="height:{Math.max(2, Math.round((c / peak) * 100))}%;background:{GRADUATED_RAMP[
+																	style="height:{Math.max(2, Math.round((c / peak) * 100))}%;background:{activeTheme.graduatedRamp[
 																		Math.min(
-																			GRADUATED_RAMP.length - 1,
-																			Math.floor((i / s.bins.length) * GRADUATED_RAMP.length)
+																			activeTheme.graduatedRamp.length - 1,
+																			Math.floor((i / s.bins.length) * activeTheme.graduatedRamp.length)
 																		)
 																	][1]}"
 																></div>
@@ -626,6 +783,25 @@
 						</details>
 					{/each}
 				{/if}
+			</div>
+
+			<!-- bottom bar: theme picker (pinned below the list) -->
+			<div class="shrink-0 border-t border-black/5 px-4 py-2">
+				<div class="flex flex-wrap items-center gap-1">
+					<span class="mr-0.5 shrink-0 text-[10px] font-medium tracking-wide text-slate-400 uppercase"
+						title={m.theme_hint()}>{m.theme()}</span
+					>
+					{#each THEMES as t (t.id)}
+						<button
+							class="rounded-full border px-2 py-0.5 text-[11px]
+							       {activeTheme.id === t.id
+								? 'border-emerald-600 bg-emerald-600 text-white'
+								: 'border-slate-200 text-slate-600 hover:bg-slate-50'}"
+							title={m.theme_hint()}
+							aria-pressed={activeTheme.id === t.id}
+							onclick={() => pickTheme(t)}>{themeLabel(t)}</button>
+					{/each}
+				</div>
 			</div>
 
 			<footer
@@ -674,8 +850,11 @@
 					{#each fieldKeys as k (k)}
 						{@const v = selected.props[k]}
 						<div class="grid grid-cols-[40%_60%] gap-2 py-1 text-sm">
-							<dt class="flex min-w-0 items-center gap-1 font-mono text-[11px] text-slate-500" title={k}>
-								<span class="truncate">{k}</span>
+							<dt
+								class="flex min-w-0 items-center gap-1 text-[11px] text-slate-500"
+								title={fTitle(selected.workspace, k)}
+							>
+								<span class="truncate">{fLabel(selected.workspace, k)}</span>
 								{#if selected.numericFields.includes(k)}
 									<span
 										class="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-700"
@@ -697,6 +876,124 @@
 			</footer>
 		</section>
 	{/if}
+
+	<!-- About popover -->
+	{#if aboutOpen}
+		<div
+			class="absolute inset-0 z-40 flex items-center justify-center p-4"
+			transition:fade={{ duration: 150 }}
+		>
+			<button
+				type="button"
+				class="absolute inset-0 cursor-default bg-black/40"
+				aria-label={m.close()}
+				onclick={() => (aboutOpen = false)}
+			></button>
+			<div
+				class="relative w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+				role="dialog"
+				aria-modal="true"
+				aria-label={m.about()}
+			>
+				<div class="flex items-start gap-3">
+					<img src={rfLogo} alt="Recovered Factory" class="h-10 w-auto shrink-0" />
+					<div class="min-w-0 flex-1">
+						<h2 class="leading-tight font-semibold text-slate-800">{m.app_title()}</h2>
+						<p class="text-xs text-slate-500">{m.app_subtitle()}</p>
+					</div>
+					<button
+						class="shrink-0 rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+						title={m.close()}
+						aria-label={m.close()}
+						onclick={() => (aboutOpen = false)}>&times;</button>
+				</div>
+				<!-- about_body is our own static i18n string (not user input), so {@html}
+				     is safe and lets the copy carry <a> links + line breaks. -->
+				<p class="about-prose mt-3 text-sm leading-relaxed whitespace-pre-line text-slate-600">
+					{@html m.about_body()}
+				</p>
+				<p class="mt-3 text-[11px] text-slate-400">{m.attribution()}</p>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Layer details popup (locks the map until dismissed) -->
+	{#if infoLayer}
+		<div
+			class="absolute inset-0 z-40 flex items-center justify-center p-4"
+			transition:fade={{ duration: 150 }}
+		>
+			<button
+				type="button"
+				class="absolute inset-0 cursor-default bg-black/40"
+				aria-label={m.close()}
+				onclick={() => (infoLayer = null)}
+			></button>
+			<div
+				class="relative flex max-h-[86dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+				role="dialog"
+				aria-modal="true"
+				aria-label={m.details()}
+			>
+				<!-- page header -->
+				<div class="flex items-start gap-2 border-b border-black/10 px-6 pt-5 pb-4">
+					<span
+						class="mt-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+						style="background:{workspaceColor(infoLayer.workspace)}"
+					></span>
+					<div class="min-w-0 flex-1">
+						<h2 class="text-lg leading-tight font-semibold text-slate-800">{titleOf(infoLayer)}</h2>
+						<p class="mt-0.5 text-xs text-slate-500">
+							{infoLayer.workspace}{#if infoLayer.geometry_type}
+								· {infoLayer.geometry_type}{/if}{#if infoLayer.serve !== 'empty'}
+								· {m.feature_count({ count: infoLayer.feature_count })}{/if}
+						</p>
+					</div>
+					<button
+						class="shrink-0 rounded px-1.5 py-0.5 text-xl leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+						title={m.close()}
+						aria-label={m.close()}
+						onclick={() => (infoLayer = null)}>&times;</button>
+				</div>
+
+				<!-- page body -->
+				<div class="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+					<p class="text-sm leading-relaxed text-slate-600">
+						{abstractOf(infoLayer) || m.no_description()}
+					</p>
+
+					{#if infoLayer.fields?.length}
+						<h3 class="mt-5 mb-1 text-xs font-medium tracking-wide text-slate-500 uppercase">
+							{m.attributes()}
+							<span class="text-slate-400 normal-case">({infoLayer.fields.length})</span>
+						</h3>
+						<dl class="divide-y divide-slate-100">
+							{#each infoLayer.fields as f (f)}
+								{@const hasDef = fHasDef(infoLayer.workspace, f)}
+								{@const desc = fDesc(infoLayer.workspace, f)}
+								<div class="py-2">
+									<dt class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+										<span class="font-medium text-slate-800">{fLabel(infoLayer.workspace, f)}</span>
+										{#if hasDef}
+											<code class="font-mono text-[10px] text-slate-400">{f}</code>
+										{/if}
+										{#if infoLayer.numeric_fields?.includes(f)}
+											<span
+												class="rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-700"
+												title={m.numeric_field()}>#</span>
+										{/if}
+									</dt>
+									{#if desc}
+										<dd class="mt-0.5 text-[12px] leading-snug text-slate-500">{desc}</dd>
+									{/if}
+								</div>
+							{/each}
+						</dl>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -707,14 +1004,29 @@
 		margin: 0;
 		height: 100%;
 	}
+	/* Links inside the About popover body (rendered from the i18n string via
+	   {@html}, so they can't carry utility classes). */
+	:global(.about-prose a) {
+		color: #047857; /* emerald-700 */
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	:global(.about-prose a:hover) {
+		color: #065f46; /* emerald-800 */
+	}
+
 	.shell {
 		position: fixed;
 		inset: 0;
 		overflow: hidden;
+		/* Theme backdrop — shows behind a hidden basemap and around the clipped
+		   relief edge so the map reads as one coherent surface. */
+		background: var(--page-bg, #efe9dd);
 	}
 	.map {
 		position: absolute;
 		inset: 0;
+		background: var(--page-bg, #efe9dd);
 	}
 
 	/* Bottom sheets (mobile-first). Full-width fly-up on phones; a docked,

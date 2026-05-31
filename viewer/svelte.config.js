@@ -8,7 +8,12 @@ const config = {
 	},
 	// SPA mode: the viewer is entirely client-side (MapLibre is browser-only),
 	// so prerender to a single index.html fallback.
-	kit: { adapter: adapter({ fallback: 'index.html' }) }
+	// `BASE_PATH` lets prod build under a subpath (e.g. /cali-idesc on the shared
+	// CloudFront); dev/default serves from the root. Pair with VITE_DATA_BASE.
+	kit: {
+		adapter: adapter({ fallback: 'index.html' }),
+		paths: { base: process.env.BASE_PATH ?? '' }
+	}
 };
 
 export default config;

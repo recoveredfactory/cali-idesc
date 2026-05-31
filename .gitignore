@@ -21,6 +21,9 @@ venv/
 # Node
 node_modules/
 
+# Local agent / tooling state
+.claude/
+
 # Secrets / local env
 .env
 .env.*

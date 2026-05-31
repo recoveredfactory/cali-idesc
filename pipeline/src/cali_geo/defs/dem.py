@@ -43,45 +43,73 @@ WMS_MAX_TILE = 4000
 
 # Named ramps: rendered gray value (0–255) -> R G B. Each becomes a selectable
 # relief style in the viewer. `default` (first) loads when relief is toggled on.
+#
+# IMPORTANT — gray is (inverse) pseudo-elevation: the styled WMS hillshade renders
+# the flat valley/city floor BRIGHT (gray clamps near 255; >half the valid pixels)
+# and the mountains DARK (low gray). So ramps run mountains→flats as gray 0→255:
+# low gray = the high green/tinted mountains, high gray = the flat city floor. Each
+# ramp's TOP color is set to the theme's page background so the relief's flat-valley
+# area dissolves into the surround and only the mountains read (no bbox rectangle).
 RELIEF_RAMPS: list[dict] = [
     {
-        # Emerald, gently desaturated toward gray (greens still dominate). Default.
+        # Emerald: teal-green mountains dissolving into a pale mint city floor.
         "id": "esmeralda",
         "label_es": "Esmeralda",
         "label_en": "Emerald",
         "ramp": [
-            (0, 30, 91, 56), (60, 53, 137, 88), (120, 91, 172, 112),
-            (185, 152, 197, 159), (255, 223, 236, 226),
+            (0, 12, 111, 95), (100, 63, 169, 143), (180, 167, 220, 198),
+            (238, 207, 230, 220), (255, 233, 241, 236),
         ],
     },
     {
-        # Restored favorite: sandy valley floor rising to green hills.
-        "id": "arena_verde",
-        "label_es": "Arena y verde",
-        "label_en": "Sandy valley",
+        # Topo: USGS-style terracotta/brown mountains over a warm cream city floor.
+        "id": "topo",
+        "label_es": "Topográfico",
+        "label_en": "Topo",
         "ramp": [
-            (0, 216, 200, 158), (60, 200, 196, 140), (130, 150, 175, 100),
-            (195, 86, 140, 66), (255, 38, 102, 48),
+            (0, 122, 74, 50), (80, 176, 122, 78), (160, 214, 184, 136),
+            (232, 233, 220, 192), (255, 239, 231, 214),
         ],
     },
     {
-        # Deeper olive — muted khaki/olive across the whole range.
+        # The favorite: lush soft-green mountains rising over a sandy city floor.
+        "id": "original",
+        "label_es": "Original",
+        "label_en": "Original",
+        "ramp": [
+            (0, 44, 123, 76), (90, 95, 171, 107), (170, 166, 207, 146),
+            (235, 216, 211, 168), (255, 240, 235, 218),
+        ],
+    },
+    {
+        # Olive: muted khaki-olive mountains over a warm oat city floor.
         "id": "oliva",
         "label_es": "Oliva",
         "label_en": "Olive",
         "ramp": [
-            (0, 54, 58, 30), (70, 84, 88, 44), (140, 124, 124, 68),
-            (200, 168, 160, 104), (255, 214, 206, 156),
+            (0, 84, 99, 42), (100, 138, 145, 80), (180, 194, 195, 137),
+            (238, 216, 214, 188), (255, 232, 231, 218),
         ],
     },
     {
-        # Dramatic dark-mode hillshade: near-black shadows to bright silver ridges.
+        # Dark: terrain emerging from black. Mountains (low gray) glow bright slate;
+        # the flat valley (high gray) goes pure black and dissolves into the page.
         "id": "oscuro",
         "label_es": "Relieve oscuro",
         "label_en": "Dark hillshade",
         "ramp": [
-            (0, 8, 10, 14), (90, 38, 44, 54), (160, 96, 104, 118),
-            (215, 170, 178, 190), (255, 236, 240, 248),
+            (0, 168, 188, 220), (70, 96, 118, 156), (150, 44, 58, 82),
+            (225, 10, 14, 22), (255, 0, 0, 0),
+        ],
+    },
+    {
+        # Slate: cool blue-gray relief over a pale blue city floor.
+        "id": "slate",
+        "label_es": "Pizarra",
+        "label_en": "Slate",
+        "ramp": [
+            (0, 51, 84, 110), (90, 107, 134, 160), (180, 174, 192, 210),
+            (235, 221, 230, 238), (255, 238, 242, 246),
         ],
     },
 ]

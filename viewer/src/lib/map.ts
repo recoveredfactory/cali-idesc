@@ -12,22 +12,58 @@ import {
 	GRADUATED_RAMP,
 	CATEGORICAL_PALETTE,
 	CATEGORICAL_FALLBACK,
+	DEFAULT_THEME,
 	WMS_BASE,
 	DEM_LAYER,
+	type Flavor,
+	type Theme,
 	type Layer,
 	type DemRelief
 } from './config';
 
 let protocolRegistered = false;
 
+// --- Active theme ramps (module-level) ---------------------------------------
+// The data "color by" ramps are theme-dependent, but threading a `theme` through
+// every call site (addLayer, colorByExpr, computeFieldStats, the +page legend)
+// would be noisy. Instead the active ramps live here as module-level state, set
+// by `setThemeRamps(theme)` whenever the theme changes (the app is client-only,
+// single-map, so shared module state is fine). Defaults mirror the static config
+// ramps so anything reading before the first theme is applied still works.
+let activeGraduated: [number, string][] = DEFAULT_THEME.graduatedRamp ?? GRADUATED_RAMP;
+let activeCategorical: string[] = DEFAULT_THEME.categoricalPalette ?? CATEGORICAL_PALETTE;
+let activeCategoricalFallback: string = CATEGORICAL_FALLBACK;
+
+/** Set the active data-color ramps from a theme. Call before the first
+ *  `addLayer` and before each recolor so expressions/legends stay in sync. */
+export function setThemeRamps(theme: Theme): void {
+	activeGraduated = theme.graduatedRamp;
+	activeCategorical = theme.categoricalPalette;
+}
+
+/** The active graduated ramp — for the legend gradient + histogram bar colors. */
+export function getActiveGraduated(): [number, string][] {
+	return activeGraduated;
+}
+
 // Basemap = the grupovisual Protomaps planet build (single PMTiles, range-served).
 const BASEMAP_PMTILES = 'pmtiles://https://pmtiles.grupovisual.org/latest.pmtiles';
 
-function basemapStyle(): maplibregl.StyleSpecification {
+// Flavor currently realized in the map style — used to decide whether a theme
+// switch needs a full `setStyle` (flavor change) or just live tuning.
+let currentFlavor: Flavor = DEFAULT_THEME.flavor;
+
+/** Sprite sheet matching a flavor (dark/black icons are pre-tinted for dark bg). */
+function spriteUrl(flavor: Flavor): string {
+	const base = 'https://protomaps.github.io/basemaps-assets/sprites/v4';
+	return flavor === 'dark' || flavor === 'black' ? `${base}/dark` : `${base}/light`;
+}
+
+function basemapStyle(flavor: Flavor): maplibregl.StyleSpecification {
 	return {
 		version: 8,
 		glyphs: 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
-		sprite: 'https://protomaps.github.io/basemaps-assets/sprites/v4/light',
+		sprite: spriteUrl(flavor),
 		sources: {
 			protomaps: {
 				type: 'vector',
@@ -36,7 +72,7 @@ function basemapStyle(): maplibregl.StyleSpecification {
 					'<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>'
 			}
 		},
-		layers: protomapsLayers('protomaps', namedFlavor('light'), { lang: 'es' })
+		layers: protomapsLayers('protomaps', namedFlavor(flavor), { lang: 'es' })
 	};
 }
 
@@ -45,9 +81,10 @@ export function createMap(container: HTMLElement): maplibregl.Map {
 		maplibregl.addProtocol('pmtiles', new Protocol().tile);
 		protocolRegistered = true;
 	}
+	currentFlavor = DEFAULT_THEME.flavor;
 	const map = new maplibregl.Map({
 		container,
-		style: basemapStyle(),
+		style: basemapStyle(currentFlavor),
 		center: CALI_CENTER,
 		zoom: CALI_ZOOM,
 		attributionControl: { compact: true }
@@ -97,11 +134,31 @@ function modeFor(field: string): 'floors' | 'meters' {
 	return HEIGHT_FIELDS[field] ?? 'meters';
 }
 
-/** Height-in-meters expression for `field`, scaled by vertical exaggeration. */
-function heightExpr(field: string, exaggeration = 1) {
-	const meters = ['coalesce', ['to-number', ['get', field]], 0];
-	const raw = modeFor(field) === 'floors' ? ['*', meters, METERS_PER_FLOOR] : meters;
-	return exaggeration === 1 ? raw : ['*', raw, exaggeration];
+// Tallest generic-field feature, in metres, at exaggeration 1. Bounds the
+// extrusion so a large-magnitude attribute (counts, areas, IDs) can't produce
+// absurd skyscrapers — the field's whole [min,max] maps into [0, this·exag].
+const NORM_MAX_HEIGHT = 120;
+
+/** Height-in-metres expression for `field`, scaled by vertical exaggeration.
+ *  - Known height fields (floors/metres): real-world height (exaggeration is a
+ *    plain multiplier).
+ *  - Any other numeric field: its `range` [min,max] is mapped onto a bounded
+ *    height so the 3D doesn't blow up; `interpolate` clamps out-of-range values.
+ *  - No range available: falls back to the raw value × exaggeration. */
+function heightExpr(field: string, exaggeration = 1, range?: [number, number]) {
+	const val = ['coalesce', ['to-number', ['get', field]], 0];
+	if (field in HEIGHT_FIELDS) {
+		const meters = modeFor(field) === 'floors' ? ['*', val, METERS_PER_FLOOR] : val;
+		return exaggeration === 1 ? meters : ['*', meters, exaggeration];
+	}
+	if (range && range[1] > range[0]) {
+		const [min, max] = range;
+		return [
+			'interpolate', ['linear'], ['to-number', ['get', field], min],
+			min, 0, max, NORM_MAX_HEIGHT * exaggeration
+		];
+	}
+	return exaggeration === 1 ? val : ['*', val, exaggeration];
 }
 
 function elevationColor() {
@@ -113,16 +170,21 @@ function elevationColor() {
 	];
 }
 
-const circleRadiusExpr = (field: string, exaggeration: number) =>
-	[
-		'interpolate',
-		['linear'],
-		heightExpr(field, exaggeration),
-		0,
-		3,
-		25,
-		14
+/** Circle radius (px) for value-scaled points. Generic numeric fields map their
+ *  [min,max] onto a bounded [3,16] px so points can't balloon; known height
+ *  fields scale by their (bounded) height expression. */
+const circleRadiusExpr = (field: string, exaggeration: number, range?: [number, number]) => {
+	if (!(field in HEIGHT_FIELDS) && range && range[1] > range[0]) {
+		const [min, max] = range;
+		return [
+			'interpolate', ['linear'], ['to-number', ['get', field], min],
+			min, 3, max, 16
+		] as unknown as number;
+	}
+	return [
+		'interpolate', ['linear'], heightExpr(field, exaggeration, range), 0, 3, 25, 14
 	] as unknown as number;
+};
 
 // --- Data-driven coloring ("color by field") --------------------------------
 
@@ -150,13 +212,13 @@ export function colorByExpr(layer: Layer, field: string): unknown | null {
 	if (range) {
 		const [min, max] = range;
 		if (!(max > min)) return null; // single value → nothing to graduate
-		const stops = GRADUATED_RAMP.flatMap(([t, c]) => [min + t * (max - min), c]);
+		const stops = activeGraduated.flatMap(([t, c]) => [min + t * (max - min), c]);
 		return ['interpolate', ['linear'], ['to-number', ['get', field], min], ...stops];
 	}
 	const cats = layer.field_categories?.[field];
 	if (cats?.length) {
-		const pairs = cats.flatMap((v, i) => [v, CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length]]);
-		return ['match', ['to-string', ['get', field]], ...pairs, CATEGORICAL_FALLBACK];
+		const pairs = cats.flatMap((v, i) => [v, activeCategorical[i % activeCategorical.length]]);
+		return ['match', ['to-string', ['get', field]], ...pairs, activeCategoricalFallback];
 	}
 	return null;
 }
@@ -231,7 +293,7 @@ export function computeFieldStats(map: maplibregl.Map, layer: Layer, field: stri
 		}
 		const items = cats.map((value, i) => ({
 			value,
-			color: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+			color: activeCategorical[i % activeCategorical.length],
 			count: counts.get(value) ?? 0
 		}));
 		return { kind: 'categorical', field, items, total };
@@ -273,9 +335,15 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 			filter: ['==', ['geometry-type'], 'Polygon'],
 			paint: {
 				'fill-extrusion-color': fillColor,
-				'fill-extrusion-opacity': 0.85,
+				// Opaque: 3D buildings/volumes shouldn't let the ground + other data
+				// layers show through their walls.
+				'fill-extrusion-opacity': 1,
 				'fill-extrusion-base': 0,
-				'fill-extrusion-height': heightExpr(extrudeField, exaggeration) as unknown as number
+				'fill-extrusion-height': heightExpr(
+					extrudeField,
+					exaggeration,
+					layer.field_ranges?.[extrudeField]
+				) as unknown as number
 			}
 		});
 	} else {
@@ -311,7 +379,9 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 		...sourceLayer,
 		filter: ['==', ['geometry-type'], 'Point'],
 		paint: {
-			'circle-radius': extrudeField ? circleRadiusExpr(extrudeField, exaggeration) : 4,
+			'circle-radius': extrudeField
+				? circleRadiusExpr(extrudeField, exaggeration, layer.field_ranges?.[extrudeField])
+				: 4,
 			'circle-color': fillColor,
 			'circle-stroke-color': '#fff',
 			'circle-stroke-width': 1
@@ -331,13 +401,14 @@ export function restyleExtrusion(
 ): void {
 	const f = field || defaultExtrudeField(layer);
 	if (!f) return;
+	const range = layer.field_ranges?.[f];
 	const fill = lyrId(layer.key, 'fill');
 	if (map.getLayer(fill) && map.getLayer(fill)!.type === 'fill-extrusion') {
-		map.setPaintProperty(fill, 'fill-extrusion-height', heightExpr(f, exaggeration) as unknown as number);
+		map.setPaintProperty(fill, 'fill-extrusion-height', heightExpr(f, exaggeration, range) as unknown as number);
 	}
 	const circle = lyrId(layer.key, 'circle');
 	if (map.getLayer(circle)) {
-		map.setPaintProperty(circle, 'circle-radius', circleRadiusExpr(f, exaggeration));
+		map.setPaintProperty(circle, 'circle-radius', circleRadiusExpr(f, exaggeration, range));
 	}
 }
 
@@ -428,7 +499,11 @@ const DEM_LYR = '__dem';
 
 /** Resolve a relief variant's served URL: the requested id, else the default. */
 function demVariantUrl(dem: DemRelief, variantId?: string): string | undefined {
-	const v = dem.variants.find((x) => x.id === variantId) ?? dem.variants.find((x) => x.id === dem.default);
+	const exact = dem.variants.find((x) => x.id === variantId);
+	if (!exact && variantId && import.meta.env.DEV) {
+		console.warn(`[dem] no baked relief variant "${variantId}"; falling back to "${dem.default}"`);
+	}
+	const v = exact ?? dem.variants.find((x) => x.id === dem.default);
 	return (v ?? dem.variants[0])?.url;
 }
 
@@ -439,7 +514,12 @@ export function setDemVariant(map: maplibregl.Map, dem: DemRelief, variantId: st
 	if (src && url && 'updateImage' in src) src.updateImage({ url: `${DATA_BASE}/${url}` });
 }
 
-export function addDem(map: maplibregl.Map, dem?: DemRelief, variantId?: string): void {
+export function addDem(
+	map: maplibregl.Map,
+	dem?: DemRelief,
+	variantId?: string,
+	opacity = 0.85
+): void {
 	if (map.getSource(DEM_SRC)) return;
 	// Lift the basemap's roads + boundaries + labels ABOVE the relief (insert it
 	// just under the first such layer) so the city stays legible, while land/water
@@ -466,7 +546,7 @@ export function addDem(map: maplibregl.Map, dem?: DemRelief, variantId?: string)
 			coordinates: dem.coordinates
 		});
 		map.addLayer(
-			{ id: DEM_LYR, type: 'raster', source: DEM_SRC, paint: { 'raster-opacity': 0.85 } },
+			{ id: DEM_LYR, type: 'raster', source: DEM_SRC, paint: { 'raster-opacity': opacity } },
 			before
 		);
 		return;
@@ -493,6 +573,11 @@ export function removeDem(map: maplibregl.Map): void {
 	if (map.getSource(DEM_SRC)) map.removeSource(DEM_SRC);
 }
 
+/** Set the relief raster opacity in place (themes use different values). */
+export function setReliefOpacity(map: maplibregl.Map, opacity: number): void {
+	if (map.getLayer(DEM_LYR)) map.setPaintProperty(DEM_LYR, 'raster-opacity', opacity);
+}
+
 // --- Basemap (Protomaps) visibility + road prominence -----------------------
 
 /** A basemap layer is any style layer that isn't one of ours (data `lyr:`,
@@ -508,12 +593,107 @@ export function setBasemapVisible(map: maplibregl.Map, visible: boolean): void {
 	}
 }
 
-/** Dim the basemap road/bridge lines so they don't overpower the relief, or
- *  restore them to the theme default (passing `undefined` clears the override). */
-export function setRoadsSubdued(map: maplibregl.Map, subdued: boolean): void {
+/** Tune the basemap road + boundary lines for a theme while relief is shown so
+ *  they don't overpower it. When `subdued`: hide the wide road `*casing*`
+ *  sublayers (if `theme.hideRoadCasing`), dim the remaining `roads*` lines to
+ *  `theme.roadOpacity`, and dim `boundaries*` (the dashed admin strokes) to
+ *  `theme.boundaryOpacity`. When not subdued, restore the flavor defaults
+ *  (clears each override with `undefined`). `startsWith('roads')` already covers
+ *  `roads_bridges_*`. */
+export function tuneBasemap(map: maplibregl.Map, theme: Theme, subdued: boolean): void {
 	for (const l of map.getStyle().layers ?? []) {
-		if (l.type === 'line' && (l.id.startsWith('roads') || l.id.startsWith('bridges'))) {
-			map.setPaintProperty(l.id, 'line-opacity', subdued ? 0.35 : undefined);
+		if (l.type !== 'line') continue;
+		const id = l.id;
+		if (id.startsWith('roads')) {
+			if (theme.hideRoadCasing && id.includes('casing')) {
+				map.setLayoutProperty(id, 'visibility', subdued ? 'none' : 'visible');
+			} else {
+				map.setPaintProperty(id, 'line-opacity', subdued ? theme.roadOpacity : undefined);
+			}
+		} else if (id.startsWith('boundaries')) {
+			map.setPaintProperty(id, 'line-opacity', subdued ? theme.boundaryOpacity : undefined);
 		}
 	}
+}
+
+// Protomaps basemap layer ids tinted per theme (so switching theme visibly moves
+// the base, not just the relief). Verified against @protomaps/basemaps layers().
+const TINT_WATER_FILL = ['water'];
+const TINT_WATER_LINE = ['water_stream', 'water_river']; // waterways are line layers
+const TINT_GREEN = ['landuse_park', 'landuse_urban_green'];
+const TINT_LABELS = [
+	'places_locality', 'places_subplace', 'places_region',
+	'roads_labels_major', 'roads_labels_minor', 'address_label'
+];
+
+/** Apply a theme's basemap tint as live paint overrides: land/background, water,
+ *  green, and a stronger label halo (so dark labels stay legible over relief).
+ *  Idempotent and safe to call whenever the relevant layers exist. */
+export function tintBasemap(map: maplibregl.Map, theme: Theme): void {
+	const bm = theme.basemap;
+	const set = (id: string, prop: string, val: unknown) => {
+		if (map.getLayer(id)) map.setPaintProperty(id, prop, val as never);
+	};
+	set('background', 'background-color', bm.earth);
+	set('earth', 'fill-color', bm.earth);
+	for (const id of TINT_WATER_FILL) set(id, 'fill-color', bm.water);
+	for (const id of TINT_WATER_LINE) set(id, 'line-color', bm.water);
+	for (const id of TINT_GREEN) set(id, 'fill-color', bm.green);
+	for (const id of TINT_LABELS) {
+		set(id, 'text-halo-color', bm.labelHalo);
+		set(id, 'text-halo-width', bm.labelHaloWidth);
+	}
+}
+
+// --- Theme application -------------------------------------------------------
+
+/** Callbacks the component supplies so `applyTheme` can drive Svelte-owned state
+ *  without `map.ts` importing Svelte. The component must set its `activeTheme`
+ *  state (and anything derived from it — page background, `demVariant`) BEFORE
+ *  calling `applyTheme`, so `reapply` reads the new theme. */
+export type ThemeApplyCtx = {
+	/** Rebuild all app-owned layers from scratch: relief (if `demOn`) → enabled
+	 *  data layers → highlight → pitch. Called only after a flavor `setStyle`. */
+	reapply: () => void;
+	/** Is the relief currently shown? */
+	demOn: boolean;
+	/** Is the Protomaps basemap currently visible? */
+	baseVisible: boolean;
+	/** Relief metadata (for a live variant swap when the flavor is unchanged). */
+	dem?: DemRelief;
+	/** Re-apply every colored layer's color expression with the new ramps. */
+	recolorAll: () => void;
+};
+
+/** Move the whole map to a new theme. The 4 light themes switch live (no basemap
+ *  reload); only entering/leaving Dark changes the Protomaps flavor, which needs
+ *  a `setStyle` (wiping app layers) followed by a `reapply()` rebuild. */
+export function applyTheme(map: maplibregl.Map, theme: Theme, ctx: ThemeApplyCtx): void {
+	setThemeRamps(theme);
+
+	if (theme.flavor === currentFlavor) {
+		// Same flavor: keep the basemap. Swap the relief image + opacity, re-tint
+		// the base, re-tune roads/boundaries, and recolor data to the new ramps. No flash.
+		if (ctx.demOn && ctx.dem) {
+			setDemVariant(map, ctx.dem, theme.variant);
+			setReliefOpacity(map, theme.reliefOpacity);
+		}
+		tintBasemap(map, theme);
+		tuneBasemap(map, theme, ctx.demOn && ctx.baseVisible);
+		ctx.recolorAll();
+		return;
+	}
+
+	// Flavor change (Dark ↔ light): full restyle wipes every app-owned layer +
+	// tuning, so rebuild on the next `styledata`. Use {diff:false} + once() (not a
+	// persistent listener, not 'style.load').
+	currentFlavor = theme.flavor;
+	map.setStyle(basemapStyle(theme.flavor), { diff: false });
+	map.once('styledata', () => {
+		ctx.reapply();
+		setBasemapVisible(map, ctx.baseVisible);
+		tintBasemap(map, theme);
+		tuneBasemap(map, theme, ctx.demOn && ctx.baseVisible);
+		ctx.recolorAll();
+	});
 }

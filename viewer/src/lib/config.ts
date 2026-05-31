@@ -92,6 +92,208 @@ export const CATEGORICAL_PALETTE: string[] = [
 ];
 export const CATEGORICAL_FALLBACK = '#9ca3af';
 
+// --- Themes ------------------------------------------------------------------
+// A theme bundles the WHOLE look so the map moves together: the Protomaps
+// basemap `flavor`, the paired baked relief `variant`, the data color ramps
+// (graduated + categorical), the page `background`, and basemap tuning (road
+// opacity, road-casing hiding, boundary opacity). Relief is no longer selected
+// independently — each theme owns one. The 4 light themes switch live (no
+// basemap reload); only entering/leaving Dark changes the flavor.
+
+// Protomaps basemap flavors. We use `light` for the warm/green themes and
+// `dark` for the Dark theme; the others are listed for completeness.
+export type Flavor = 'light' | 'dark' | 'white' | 'grayscale' | 'black';
+
+export type Theme = {
+	id: string;
+	label_es: string;
+	label_en: string;
+	flavor: Flavor;
+	/** Baked relief variant id (must match a `dem.variants[].id`). */
+	variant: string;
+	/** Graduated ramp for numeric "color by" (stops are 0..1 fractions). */
+	graduatedRamp: [number, string][];
+	/** Qualitative palette for categorical "color by". */
+	categoricalPalette: string[];
+	/** CSS page/map backdrop — shows around the clipped relief + behind a hidden base. */
+	background: string;
+	/** Relief raster opacity (dark themes go lower so hills stay dark, not gray). */
+	reliefOpacity: number;
+	/** Opacity for basemap road lines while relief is shown (1 = untouched). */
+	roadOpacity: number;
+	/** Hide the wide road `*casing*` sublayers (they read fuzzy over relief). */
+	hideRoadCasing: boolean;
+	/** Opacity for basemap boundary lines (tames the dashed admin strokes). */
+	boundaryOpacity: number;
+	/** Per-theme basemap tint so the base visibly shifts with the theme (applied
+	 *  live as paint overrides on the Protomaps land/water/green/label layers). */
+	basemap: {
+		/** Land + background fill. */
+		earth: string;
+		/** Water bodies + streams + rivers. */
+		water: string;
+		/** Parks / urban green. */
+		green: string;
+		/** Label halo color (lighter/wider for legibility over dark relief). */
+		labelHalo: string;
+		/** Label halo width. */
+		labelHaloWidth: number;
+	};
+};
+
+// Brightened categorical palette for the dark theme (the light palette mud-dies
+// against a near-black base).
+export const CATEGORICAL_PALETTE_DARK: string[] = [
+	'#6ea8e0', '#ffb24d', '#ff7b7d', '#5fd6cf', '#86d873',
+	'#ffe773', '#d49ed0', '#ffc2cb', '#cc9e85', '#d8d0cc'
+];
+
+export const THEMES: Theme[] = [
+	{
+		id: 'original',
+		label_es: 'Original',
+		label_en: 'Original',
+		flavor: 'light',
+		variant: 'original',
+		graduatedRamp: [
+			[0, '#1a6b3c'], [0.25, '#6fae6a'], [0.5, '#cfe0a0'], [0.75, '#e8c46a'], [1, '#a85a1e']
+		],
+		categoricalPalette: CATEGORICAL_PALETTE,
+		background: '#f0ebda',
+		reliefOpacity: 0.85,
+		roadOpacity: 0.35,
+		hideRoadCasing: true,
+		boundaryOpacity: 0.5,
+		basemap: {
+			earth: '#f0ebda',
+			water: '#b6d2c6',
+			green: '#cddaa8',
+			labelHalo: '#ffffff',
+			labelHaloWidth: 1.8
+		}
+	},
+	{
+		id: 'emerald',
+		label_es: 'Esmeralda',
+		label_en: 'Emerald',
+		flavor: 'light',
+		variant: 'esmeralda',
+		graduatedRamp: [
+			[0, '#0d7d6e'], [0.25, '#4fb39a'], [0.5, '#b9e3cf'], [0.75, '#f0d98a'], [1, '#d97b3a']
+		],
+		categoricalPalette: CATEGORICAL_PALETTE,
+		background: '#e9f1ec',
+		reliefOpacity: 0.85,
+		roadOpacity: 0.35,
+		hideRoadCasing: true,
+		boundaryOpacity: 0.5,
+		basemap: {
+			earth: '#e9f1ec',
+			water: '#bfe0d6',
+			green: '#c8e2c4',
+			labelHalo: '#ffffff',
+			labelHaloWidth: 1.8
+		}
+	},
+	{
+		id: 'olive',
+		label_es: 'Oliva',
+		label_en: 'Olive',
+		flavor: 'light',
+		variant: 'oliva',
+		graduatedRamp: [
+			[0, '#5c5a2e'], [0.25, '#8f8a4a'], [0.5, '#c8bf7e'], [0.75, '#d8a25a'], [1, '#a8542e']
+		],
+		categoricalPalette: CATEGORICAL_PALETTE,
+		background: '#e8e7da',
+		reliefOpacity: 0.85,
+		roadOpacity: 0.35,
+		hideRoadCasing: true,
+		boundaryOpacity: 0.5,
+		basemap: {
+			earth: '#e8e7da',
+			water: '#cdd2bf',
+			green: '#cfcf9e',
+			labelHalo: '#ffffff',
+			labelHaloWidth: 1.8
+		}
+	},
+	{
+		id: 'topo',
+		label_es: 'Topográfico',
+		label_en: 'Topo',
+		flavor: 'light',
+		variant: 'topo',
+		graduatedRamp: [
+			[0, '#2c6e8f'], [0.25, '#7cb0c4'], [0.5, '#f0e3c8'], [0.75, '#e0a35a'], [1, '#a8432a']
+		],
+		categoricalPalette: CATEGORICAL_PALETTE,
+		background: '#efe7d6',
+		reliefOpacity: 0.85,
+		roadOpacity: 0.35,
+		hideRoadCasing: true,
+		boundaryOpacity: 0.5,
+		basemap: {
+			earth: '#efe7d6',
+			water: '#c7d4cf',
+			green: '#dcd3ad',
+			labelHalo: '#ffffff',
+			labelHaloWidth: 1.8
+		}
+	},
+	{
+		id: 'slate',
+		label_es: 'Pizarra',
+		label_en: 'Slate',
+		flavor: 'light',
+		variant: 'slate',
+		graduatedRamp: [
+			[0, '#08519c'], [0.25, '#6baed6'], [0.5, '#c6dbef'], [0.75, '#fdae6b'], [1, '#e6550d']
+		],
+		categoricalPalette: CATEGORICAL_PALETTE,
+		background: '#eef2f6',
+		reliefOpacity: 0.85,
+		roadOpacity: 0.35,
+		hideRoadCasing: true,
+		boundaryOpacity: 0.5,
+		basemap: {
+			earth: '#eef2f6',
+			water: '#c4d2e2',
+			green: '#cdd6cf',
+			labelHalo: '#ffffff',
+			labelHaloWidth: 1.8
+		}
+	},
+	{
+		id: 'dark',
+		label_es: 'Oscuro',
+		label_en: 'Dark',
+		flavor: 'dark',
+		variant: 'oscuro',
+		graduatedRamp: [
+			[0, '#3aa0ff'], [0.25, '#7fd4c0'], [0.5, '#ffe08a'], [0.75, '#ff9f5a'], [1, '#ff5d6c']
+		],
+		categoricalPalette: CATEGORICAL_PALETTE_DARK,
+		background: '#000000',
+		// Relief sits over a true-black base: shadows (near-black ramp) read black,
+		// ridges lift to bright slate. Higher opacity than before so the highlights
+		// actually show through instead of the map feeling uniformly too dark.
+		reliefOpacity: 0.75,
+		roadOpacity: 0.4,
+		hideRoadCasing: true,
+		boundaryOpacity: 0.3,
+		basemap: {
+			earth: '#000000',
+			water: '#06121e',
+			green: '#0a1610',
+			labelHalo: '#000000',
+			labelHaloWidth: 1.4
+		}
+	}
+];
+
+export const DEFAULT_THEME: Theme = THEMES[0];
+
 // --- WMS DEM overlay (raster workspace; WCS is disabled) ---------------------
 export const WMS_BASE = 'https://ws-idesc.cali.gov.co/geoserver/ows';
 export const DEM_LAYER = 'raster:dem_modelo_elevacion_digital';
