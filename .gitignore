@@ -1,0 +1,28 @@
+# Root ignores for the cali-idesc monorepo.
+# NOTE: pipeline/.gitignore and viewer/.gitignore are honored as nested
+# ignore files and already exclude the big stuff (pipeline/data ~13GB,
+# node_modules, build/, .svelte-kit, .venv, .dagster). These are belt-and-suspenders.
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+!.env.test
