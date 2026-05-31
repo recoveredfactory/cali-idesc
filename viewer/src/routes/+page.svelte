@@ -15,6 +15,8 @@
 		addDem,
 		removeDem,
 		setDemVariant,
+		setBasemapVisible,
+		setRoadsSubdued,
 		extrudableFields,
 		defaultExtrudeField,
 		restyleExtrusion,
@@ -40,6 +42,7 @@
 	let searchEl: HTMLInputElement | undefined;
 	let dem = $state(false);
 	let demVariant = $state(''); // chosen relief color ramp id
+	let baseVisible = $state(true); // Protomaps basemap shown?
 	// Per-layer 3D: which enabled layers extrude, and by which numeric field.
 	let extrude = $state<Record<string, boolean>>({});
 	let extrudeField = $state<Record<string, string>>({});
@@ -107,6 +110,7 @@
 	// height in px; it snaps between a peek, a half, and a near-full state.
 	const PEEK = 150;
 	let innerH = $state(800);
+	let innerW = $state(1024);
 	let sheetH = $state(PEEK);
 	let dragging = $state(false);
 	let dragStartY = 0;
@@ -264,6 +268,16 @@
 		dem = !dem;
 		if (dem) addDem(map, manifest?.dem, demVariant);
 		else removeDem(map);
+		// Roads-over-relief read too strong, so dim them while relief is shown.
+		setRoadsSubdued(map, dem && baseVisible);
+	}
+
+	/** Show/hide the entire Protomaps basemap (data + relief stay). */
+	function toggleBase() {
+		if (!map) return;
+		baseVisible = !baseVisible;
+		setBasemapVisible(map, baseVisible);
+		setRoadsSubdued(map, dem && baseVisible);
 	}
 
 	/** Switch the relief color ramp live (no re-add). */
@@ -298,7 +312,9 @@
 			moreCount: feats.length - 1
 		};
 		setHighlight(map, f as unknown as GeoJSON.Feature);
-		sheetH = PEEK; // get the layer sheet out of the way for the inspector
+		// On phones the inspector covers the screen, so duck the layer sheet out of
+		// the way. On desktop the inspector is a separate docked card — leave it.
+		if (innerW < 768) sheetH = PEEK;
 	}
 
 	function onMapMove(e: MapMouseEvent) {
@@ -309,6 +325,9 @@
 	}
 
 	onMount(() => {
+		// Desktop: open the layer sheet expanded by default (it only closes when the
+		// user drags it down). Phones keep the compact peek so the map stays visible.
+		if (window.innerWidth >= 768) sheetH = Math.round(window.innerHeight * 0.92);
 		map = createMap(mapEl);
 		if (import.meta.env.DEV) (window as unknown as { __map: MLMap }).__map = map;
 		map.on('click', onMapClick);
@@ -327,7 +346,7 @@
 	});
 </script>
 
-<svelte:window bind:innerHeight={innerH} />
+<svelte:window bind:innerHeight={innerH} bind:innerWidth={innerW} />
 
 <div class="shell">
 	<div bind:this={mapEl} class="map"></div>
@@ -388,7 +407,7 @@
 				<p class="min-w-0 truncate text-[11px] text-slate-500">
 					{m.layers_count({ count: manifest?.generated_layers ?? 0 })} · {m.app_subtitle()}
 				</p>
-				<img src={rfLogo} alt="Recovered Factory" class="h-4 w-auto shrink-0 opacity-80" />
+				<img src={rfLogo} alt="Recovered Factory" class="h-5 w-auto shrink-0 opacity-80 sm:h-8" />
 			</div>
 		</div>
 
@@ -404,6 +423,14 @@
 						title={m.dem_hint()}
 						aria-pressed={dem}
 						onclick={toggleDem}>{m.dem()}</button>
+					<button
+						class="rounded-lg border px-2.5 py-1 text-xs font-medium
+						       {baseVisible
+							? 'border-slate-600 bg-slate-600 text-white'
+							: 'border-slate-200 text-slate-600 hover:bg-slate-50'}"
+						title={m.base_hint()}
+						aria-pressed={baseVisible}
+						onclick={toggleBase}>{m.base()}</button>
 					<button
 						class="ml-auto text-xs text-slate-500 underline hover:text-slate-700"
 						onclick={clearAll}>{m.clear_all()}</button>
@@ -601,7 +628,10 @@
 				{/if}
 			</div>
 
-			<footer class="shrink-0 border-t border-black/5 px-4 py-2 text-[11px] text-slate-400">
+			<footer
+				class="shrink-0 border-t border-black/5 px-4 py-2 text-[11px] text-slate-400"
+				style="padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px))"
+			>
 				{m.attribution()}
 			</footer>
 		</div>
@@ -694,7 +724,9 @@
 		bottom: 0;
 		left: 0;
 		right: 0;
-		max-height: 92vh;
+		/* dvh (not vh) so the sheet respects the *visible* viewport — vh includes
+		   the area behind the mobile address bar, which clipped the list bottom. */
+		max-height: 92dvh;
 		border-top-left-radius: 1rem;
 		border-top-right-radius: 1rem;
 		overflow: hidden;
@@ -708,7 +740,7 @@
 		bottom: 0;
 		left: 0;
 		right: 0;
-		max-height: 62vh;
+		max-height: 62dvh;
 		border-top-left-radius: 1rem;
 		border-top-right-radius: 1rem;
 		overflow: hidden;
@@ -726,7 +758,7 @@
 			right: 1rem;
 			bottom: 1rem;
 			width: 380px;
-			max-height: 70vh;
+			max-height: 70dvh;
 			border-radius: 1rem;
 		}
 	}

@@ -17,6 +17,8 @@
 	"view_3d_hint": "Extrude by height (floors, trees) and color contours by elevation",
 	"dem": "Relief",
 	"dem_hint": "Digital elevation model (DEM) from IDESC",
+	"base": "Base",
+	"base_hint": "Show or hide the base map",
 	"extrude_3d": "3D",
 	"extrude_hint": "Extrude this layer by a numeric field",
 	"extrude_field": "Height field",

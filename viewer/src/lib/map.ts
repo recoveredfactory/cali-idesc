@@ -492,3 +492,28 @@ export function removeDem(map: maplibregl.Map): void {
 	if (map.getLayer(DEM_LYR)) map.removeLayer(DEM_LYR);
 	if (map.getSource(DEM_SRC)) map.removeSource(DEM_SRC);
 }
+
+// --- Basemap (Protomaps) visibility + road prominence -----------------------
+
+/** A basemap layer is any style layer that isn't one of ours (data `lyr:`,
+ *  highlight `__hl`, or the relief `__dem`). */
+const isBasemapLayer = (id: string) =>
+	!id.startsWith('lyr:') && !id.startsWith('__hl') && id !== DEM_LYR;
+
+/** Show or hide the entire Protomaps basemap, leaving relief + data layers. */
+export function setBasemapVisible(map: maplibregl.Map, visible: boolean): void {
+	const v = visible ? 'visible' : 'none';
+	for (const l of map.getStyle().layers ?? []) {
+		if (isBasemapLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', v);
+	}
+}
+
+/** Dim the basemap road/bridge lines so they don't overpower the relief, or
+ *  restore them to the theme default (passing `undefined` clears the override). */
+export function setRoadsSubdued(map: maplibregl.Map, subdued: boolean): void {
+	for (const l of map.getStyle().layers ?? []) {
+		if (l.type === 'line' && (l.id.startsWith('roads') || l.id.startsWith('bridges'))) {
+			map.setPaintProperty(l.id, 'line-opacity', subdued ? 0.35 : undefined);
+		}
+	}
+}
