@@ -1,1 +1,6 @@
-@import 'tailwindcss';
+/* Disable Tailwind's automatic content detection and scan ONLY src/. Auto-detection
+   walks the whole project and follows static/data -> ../../pipeline/data (the ~6.6GB
+   of baked geojson), parsing it all for class names — which balloons the build to
+   ~6.5GB and OOM-kills it. Scoping to src/ keeps the build ~1GB. */
+@import 'tailwindcss' source(none);
+@source "..";

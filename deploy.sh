@@ -35,10 +35,14 @@ aws sts get-caller-identity >/dev/null || { echo "ERROR: no AWS credentials"; ex
 #    into the static build (adapter-static dereferences it and copies ~14GB).
 #    Move it aside for the build, then restore it.
 echo "==> building viewer"
+# Move the dev symlink (viewer/static/data -> ../../pipeline/data) OUT of static/
+# during the build: adapter-static would otherwise dereference it and copy ~14GB
+# into build/. (Tailwind is already scoped to src/ so it won't scan it either.)
 DATA_LINK="$VIEWER/static/data"
-restore_link() { [[ -e "$DATA_LINK.deploybak" ]] && mv "$DATA_LINK.deploybak" "$DATA_LINK"; }
+DATA_BAK="$VIEWER/.data-symlink.deploybak" # outside static/
+restore_link() { [[ -e "$DATA_BAK" ]] && mv "$DATA_BAK" "$DATA_LINK"; }
 trap restore_link EXIT
-[[ -L "$DATA_LINK" ]] && mv "$DATA_LINK" "$DATA_LINK.deploybak"
+[[ -L "$DATA_LINK" ]] && mv "$DATA_LINK" "$DATA_BAK"
 ( cd "$VIEWER" && BASE_PATH="/$PREFIX" VITE_DATA_BASE="/$PREFIX/data" pnpm build )
 restore_link; trap - EXIT
 
