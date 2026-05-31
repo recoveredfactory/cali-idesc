@@ -4,6 +4,7 @@
 	"app_subtitle": "Catálogo abierto IDESC",
 	"layers_count": "{count} capas",
 	"search_placeholder": "Buscar capa…",
+	"search_clear": "Limpiar búsqueda",
 	"loading": "Cargando catálogo…",
 	"no_geometry": "sin geometría",
 	"feature_count": "{count} objetos",

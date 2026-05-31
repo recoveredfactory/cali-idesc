@@ -32,6 +32,7 @@
 	let enabled = $state<Record<string, boolean>>({});
 	let info = $state<Record<string, boolean>>({});
 	let search = $state('');
+	let searchEl: HTMLInputElement | undefined;
 	let dem = $state(false);
 	let demVariant = $state(''); // chosen relief color ramp id
 	// Per-layer 3D: which enabled layers extrude, and by which numeric field.
@@ -84,6 +85,11 @@
 	}
 	function expandForSearch() {
 		if (sheetH < halfH) sheetH = fullH;
+	}
+
+	function clearSearch() {
+		search = '';
+		searchEl?.focus();
 	}
 
 	type Selected = {
@@ -299,12 +305,23 @@
 			<div class="mx-auto mb-2 h-1.5 w-10 rounded-full bg-slate-300"></div>
 		</button>
 		<div class="shrink-0 px-4">
-			<input
-				class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none"
-				placeholder={m.search_placeholder()}
-				bind:value={search}
-				onfocus={expandForSearch}
-			/>
+			<div class="relative">
+				<input
+					bind:this={searchEl}
+					class="w-full rounded-lg border border-slate-200 py-2 pr-9 pl-3 text-sm focus:border-slate-400 focus:outline-none"
+					placeholder={m.search_placeholder()}
+					bind:value={search}
+					onfocus={expandForSearch}
+				/>
+				{#if search}
+					<button
+						type="button"
+						class="absolute top-1/2 right-1.5 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+						title={m.search_clear()}
+						aria-label={m.search_clear()}
+						onclick={clearSearch}>✕</button>
+				{/if}
+			</div>
 			<div class="mt-2 mb-2 flex items-center justify-between gap-3">
 				<p class="min-w-0 truncate text-[11px] text-slate-500">
 					{m.layers_count({ count: manifest?.generated_layers ?? 0 })} · {m.app_subtitle()}

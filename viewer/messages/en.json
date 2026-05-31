@@ -4,6 +4,7 @@
 	"app_subtitle": "IDESC open catalog",
 	"layers_count": "{count} layers",
 	"search_placeholder": "Search a layer…",
+	"search_clear": "Clear search",
 	"loading": "Loading catalog…",
 	"no_geometry": "no geometry",
 	"feature_count": "{count} features",
