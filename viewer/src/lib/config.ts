@@ -24,6 +24,11 @@ export type Layer = {
 	bbox: [number, number, number, number] | null;
 	fields?: string[];
 	numeric_fields?: string[];
+	// Per-field styling stats baked by scripts/build_field_stats.py: numeric
+	// [min, max] ranges (graduated ramps) and low-cardinality string value lists
+	// (categorical coloring). Absent on layers with no usable fields.
+	field_ranges?: Record<string, [number, number]>;
+	field_categories?: Record<string, string[]>;
 };
 
 // --- 3D / elevation ----------------------------------------------------------
@@ -66,6 +71,26 @@ export const DEM_RELIEF_RAMP: [number, string][] = [
 	[0.8, '#31a354'],
 	[1, '#006d2c']
 ];
+
+// --- Data-driven layer coloring ("color by field") --------------------------
+// Sequential ramp (stops are 0..1 fractions of a field's [min,max]) for coloring
+// a layer by a numeric field. Blue→yellow→red — a perceptual "value" ramp, kept
+// deliberately distinct from the green elevation/DEM ramps above.
+export const GRADUATED_RAMP: [number, string][] = [
+	[0, '#2c7bb6'],
+	[0.25, '#abd9e9'],
+	[0.5, '#ffffbf'],
+	[0.75, '#fdae61'],
+	[1, '#d7191c']
+];
+
+// Qualitative palette for coloring a layer by a categorical field (cycled by
+// value index); '#9ca3af' (slate-400) is the fallback for unlisted values.
+export const CATEGORICAL_PALETTE: string[] = [
+	'#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f',
+	'#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'
+];
+export const CATEGORICAL_FALLBACK = '#9ca3af';
 
 // --- WMS DEM overlay (raster workspace; WCS is disabled) ---------------------
 export const WMS_BASE = 'https://ws-idesc.cali.gov.co/geoserver/ows';

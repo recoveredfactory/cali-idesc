@@ -9,6 +9,9 @@ import {
 	METERS_PER_FLOOR,
 	ELEVATION_FIELD,
 	ELEVATION_RAMP,
+	GRADUATED_RAMP,
+	CATEGORICAL_PALETTE,
+	CATEGORICAL_FALLBACK,
 	WMS_BASE,
 	DEM_LAYER,
 	type Layer,
@@ -63,9 +66,15 @@ export function workspaceColor(workspace: string): string {
 const srcId = (key: string) => `src:${key}`;
 const lyrId = (key: string, suffix: string) => `lyr:${key}:${suffix}`;
 
-/** Per-layer 3D state: whether this layer extrudes, by which numeric field, and
- *  the (global) vertical-exaggeration multiplier applied to its height. */
-export type ExtrudeOpts = { extrude?: boolean; field?: string | null; exaggeration?: number };
+/** Per-layer render state: 3D extrusion (whether, by which numeric field, and
+ *  the global vertical-exaggeration multiplier), plus the optional field that
+ *  drives data-driven coloring (`colorField`; null = flat workspace color). */
+export type ExtrudeOpts = {
+	extrude?: boolean;
+	field?: string | null;
+	exaggeration?: number;
+	colorField?: string | null;
+};
 
 /** Numeric attributes a layer can extrude / scale by — the field-picker menu.
  *  Falls back to the legacy known-height fields when the pipeline hasn't yet
@@ -115,6 +124,121 @@ const circleRadiusExpr = (field: string, exaggeration: number) =>
 		14
 	] as unknown as number;
 
+// --- Data-driven coloring ("color by field") --------------------------------
+
+/** The fields a layer can be colored by, split by kind. Numeric fields drive a
+ *  graduated ramp (from `field_ranges`); categorical fields a palette match
+ *  (from `field_categories`). */
+export function colorableFields(layer: Layer): { numeric: string[]; categorical: string[] } {
+	return {
+		numeric: Object.keys(layer.field_ranges ?? {}),
+		categorical: Object.keys(layer.field_categories ?? {})
+	};
+}
+
+export function hasColorableFields(layer: Layer): boolean {
+	const { numeric, categorical } = colorableFields(layer);
+	return numeric.length > 0 || categorical.length > 0;
+}
+
+/** A MapLibre color expression that paints features by `field`'s value:
+ *  numeric → graduated interpolate across the field's [min,max]; categorical →
+ *  match each known value to a palette color. Returns null when the field has no
+ *  usable stats or a degenerate range — caller falls back to the flat color. */
+export function colorByExpr(layer: Layer, field: string): unknown | null {
+	const range = layer.field_ranges?.[field];
+	if (range) {
+		const [min, max] = range;
+		if (!(max > min)) return null; // single value → nothing to graduate
+		const stops = GRADUATED_RAMP.flatMap(([t, c]) => [min + t * (max - min), c]);
+		return ['interpolate', ['linear'], ['to-number', ['get', field], min], ...stops];
+	}
+	const cats = layer.field_categories?.[field];
+	if (cats?.length) {
+		const pairs = cats.flatMap((v, i) => [v, CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length]]);
+		return ['match', ['to-string', ['get', field]], ...pairs, CATEGORICAL_FALLBACK];
+	}
+	return null;
+}
+
+/** Live-recolor an already-added layer by `field` (or revert to the flat
+ *  workspace color when `field` is null) without re-adding it. Sets fill/circle
+ *  and the line outline; reverting restores the elevation line color on contour
+ *  layers. */
+export function setLayerColor(map: maplibregl.Map, layer: Layer, field: string | null): void {
+	const expr = field ? colorByExpr(layer, field) : null;
+	const base = workspaceColor(layer.workspace);
+	const hasElevation = (layer.fields ?? []).includes(ELEVATION_FIELD);
+	const fill = lyrId(layer.key, 'fill');
+	const line = lyrId(layer.key, 'line');
+	const circle = lyrId(layer.key, 'circle');
+	if (map.getLayer(fill)) {
+		const prop = map.getLayer(fill)!.type === 'fill-extrusion' ? 'fill-extrusion-color' : 'fill-color';
+		map.setPaintProperty(fill, prop, (expr ?? base) as never);
+	}
+	if (map.getLayer(circle)) map.setPaintProperty(circle, 'circle-color', (expr ?? base) as never);
+	if (map.getLayer(line)) {
+		map.setPaintProperty(line, 'line-color', (expr ?? (hasElevation ? elevationColor() : base)) as never);
+	}
+}
+
+/** Numeric histogram or category breakdown for a colored layer, computed from
+ *  the features currently loaded in the source. For pmtiles layers that's only
+ *  the loaded tiles, so `total` is a sample — surface that to the user. */
+export type FieldStats =
+	| { kind: 'numeric'; field: string; min: number; max: number; bins: number[]; total: number }
+	| { kind: 'categorical'; field: string; items: { value: string; color: string; count: number }[]; total: number }
+	| null;
+
+const BINS = 24;
+
+export function computeFieldStats(map: maplibregl.Map, layer: Layer, field: string): FieldStats {
+	const params = layer.serve === 'pmtiles' ? { sourceLayer: layer.key } : {};
+	let feats: ReturnType<maplibregl.Map['querySourceFeatures']> = [];
+	try {
+		feats = map.querySourceFeatures(srcId(layer.key), params);
+	} catch {
+		return null;
+	}
+	const range = layer.field_ranges?.[field];
+	if (range) {
+		const [min, max] = range;
+		const span = max - min || 1;
+		const bins = new Array(BINS).fill(0);
+		let total = 0;
+		for (const f of feats) {
+			const raw = f.properties?.[field];
+			const v = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(',', '.'));
+			if (!Number.isFinite(v)) continue;
+			let b = Math.floor(((v - min) / span) * BINS);
+			if (b < 0) b = 0;
+			if (b >= BINS) b = BINS - 1;
+			bins[b]++;
+			total++;
+		}
+		return { kind: 'numeric', field, min, max, bins, total };
+	}
+	const cats = layer.field_categories?.[field];
+	if (cats?.length) {
+		const counts = new Map<string, number>();
+		let total = 0;
+		for (const f of feats) {
+			const raw = f.properties?.[field];
+			if (raw == null) continue;
+			const v = String(raw);
+			counts.set(v, (counts.get(v) ?? 0) + 1);
+			total++;
+		}
+		const items = cats.map((value, i) => ({
+			value,
+			color: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+			count: counts.get(value) ?? 0
+		}));
+		return { kind: 'categorical', field, items, total };
+	}
+	return null;
+}
+
 /** Add a layer's source + render layers. A layer extrudes (polygons) / scales
  *  (points) only when `opts.extrude` is set with a chosen `field` — this is now
  *  per-layer, not a global mode. Contour lines always color by `cota` elevation
@@ -134,6 +258,10 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 	const hasElevation = (layer.fields ?? []).includes(ELEVATION_FIELD);
 	const exaggeration = opts.exaggeration ?? 1;
 	const extrudeField = opts.extrude ? opts.field || defaultExtrudeField(layer) : null;
+	// Data-driven color expression (null = flat workspace color). Applied to
+	// fill/circle and the line outline so it survives extrude-driven re-adds.
+	const colorExpr = opts.colorField ? colorByExpr(layer, opts.colorField) : null;
+	const fillColor = (colorExpr ?? color) as never;
 
 	// Polygons: flat fill, or extruded when this layer is in 3D with a chosen field.
 	if (extrudeField) {
@@ -144,7 +272,7 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 			...sourceLayer,
 			filter: ['==', ['geometry-type'], 'Polygon'],
 			paint: {
-				'fill-extrusion-color': color,
+				'fill-extrusion-color': fillColor,
 				'fill-extrusion-opacity': 0.85,
 				'fill-extrusion-base': 0,
 				'fill-extrusion-height': heightExpr(extrudeField, exaggeration) as unknown as number
@@ -157,7 +285,7 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 			source: srcId(layer.key),
 			...sourceLayer,
 			filter: ['==', ['geometry-type'], 'Polygon'],
-			paint: { 'fill-color': color, 'fill-opacity': 0.35 }
+			paint: { 'fill-color': fillColor, 'fill-opacity': 0.35 }
 		});
 	}
 
@@ -168,9 +296,11 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 		source: srcId(layer.key),
 		...sourceLayer,
 		filter: ['in', ['geometry-type'], ['literal', ['LineString', 'Polygon']]],
-		paint: hasElevation
-			? { 'line-color': elevationColor() as unknown as string, 'line-width': 1.3 }
-			: { 'line-color': color, 'line-width': 1.4 }
+		paint: colorExpr
+			? { 'line-color': colorExpr as unknown as string, 'line-width': 1.4 }
+			: hasElevation
+				? { 'line-color': elevationColor() as unknown as string, 'line-width': 1.3 }
+				: { 'line-color': color, 'line-width': 1.4 }
 	});
 
 	// Points: fixed dots, or value-scaled when this layer is in 3D with a chosen field.
@@ -182,7 +312,7 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 		filter: ['==', ['geometry-type'], 'Point'],
 		paint: {
 			'circle-radius': extrudeField ? circleRadiusExpr(extrudeField, exaggeration) : 4,
-			'circle-color': color,
+			'circle-color': fillColor,
 			'circle-stroke-color': '#fff',
 			'circle-stroke-width': 1
 		}

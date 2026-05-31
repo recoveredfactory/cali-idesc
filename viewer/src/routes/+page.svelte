@@ -3,7 +3,7 @@
 	import { fly } from 'svelte/transition';
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import type { Map as MLMap, MapMouseEvent } from 'maplibre-gl';
-	import { MANIFEST_URL, type Layer, type Manifest } from '$lib/config';
+	import { MANIFEST_URL, GRADUATED_RAMP, type Layer, type Manifest } from '$lib/config';
 	import {
 		createMap,
 		addLayer,
@@ -18,7 +18,12 @@
 		extrudableFields,
 		defaultExtrudeField,
 		restyleExtrusion,
-		type ExtrudeOpts
+		colorableFields,
+		hasColorableFields,
+		setLayerColor,
+		computeFieldStats,
+		type ExtrudeOpts,
+		type FieldStats
 	} from '$lib/map';
 	import { m } from '$lib/paraglide/messages';
 	import { getLocale, setLocale, locales } from '$lib/paraglide/runtime';
@@ -40,11 +45,61 @@
 	let extrudeField = $state<Record<string, string>>({});
 	// Global vertical exaggeration applied to every extruded layer's height.
 	let exaggeration = $state(3);
+	// Per-layer "color by field" selection, and the client-side stats (histogram /
+	// category counts) backing the contextual legend for each colored layer.
+	let colorField = $state<Record<string, string>>({});
+	let fieldStats = $state<Record<string, FieldStats>>({});
 
 	const anyExtruded = $derived(Object.values(extrude).some(Boolean));
 
 	function optsFor(l: Layer): ExtrudeOpts {
-		return { extrude: !!extrude[l.key], field: extrudeField[l.key] ?? null, exaggeration };
+		return {
+			extrude: !!extrude[l.key],
+			field: extrudeField[l.key] ?? null,
+			exaggeration,
+			colorField: colorField[l.key] ?? null
+		};
+	}
+
+	/** Pick (or clear) the field a layer is colored by; recolor live + refresh its
+	 *  contextual stats. Empty string clears back to the flat workspace color. */
+	function setColorField(l: Layer, field: string) {
+		if (field) colorField[l.key] = field;
+		else delete colorField[l.key];
+		if (map && enabled[l.key]) {
+			setLayerColor(map, l, field || null);
+			refreshStats(l);
+		}
+	}
+
+	/** Recompute the histogram / category counts for one colored layer from the
+	 *  features currently loaded in its source. */
+	function refreshStats(l: Layer) {
+		const field = colorField[l.key];
+		if (map && field) fieldStats[l.key] = computeFieldStats(map, l, field);
+		else delete fieldStats[l.key];
+	}
+
+	/** Refresh every colored layer's stats (e.g. after the map settles, when more
+	 *  tiles/features have loaded). */
+	function refreshAllStats() {
+		const byKey = new Map((manifest?.layers ?? []).map((l) => [l.key, l]));
+		for (const key of Object.keys(colorField)) {
+			const l = byKey.get(key);
+			if (l) refreshStats(l);
+		}
+	}
+
+	/** CSS gradient mirroring the numeric ramp, for the legend swatch bar. */
+	const rampGradient = `linear-gradient(to right, ${GRADUATED_RAMP.map(
+		([t, c]) => `${c} ${Math.round(t * 100)}%`
+	).join(', ')})`;
+
+	/** Compact number formatting for the histogram min/max labels. */
+	function fmt(n: number): string {
+		const a = Math.abs(n);
+		if (a !== 0 && (a >= 100000 || a < 0.01)) return n.toExponential(1);
+		return (Math.round(n * 100) / 100).toLocaleString(locale);
 	}
 
 	// --- bottom sheet (fly-up) ----------------------------------------------
@@ -146,6 +201,8 @@
 			removeLayer(map, l.key);
 			enabled[l.key] = false;
 			extrude[l.key] = false;
+			delete colorField[l.key];
+			delete fieldStats[l.key];
 			syncPitch();
 		} else {
 			addLayer(map, l, optsFor(l));
@@ -161,6 +218,8 @@
 		}
 		enabled = {};
 		extrude = {};
+		colorField = {};
+		fieldStats = {};
 		syncPitch();
 		closeInspector();
 	}
@@ -254,6 +313,9 @@
 		if (import.meta.env.DEV) (window as unknown as { __map: MLMap }).__map = map;
 		map.on('click', onMapClick);
 		map.on('mousemove', onMapMove);
+		// Once panning/zooming/tiling settles, refresh colored-layer stats so the
+		// histograms reflect whatever features are now loaded.
+		map.on('idle', refreshAllStats);
 		fetch(MANIFEST_URL)
 			.then((res) => res.json())
 			.then((data) => {
@@ -456,6 +518,78 @@
 															<option value={f}>{f}</option>
 														{/each}
 													</select>
+												{/if}
+											</div>
+										{/if}
+										{#if enabled[l.key] && hasColorableFields(l)}
+											{@const cf = colorableFields(l)}
+											<div class="mt-0.5 mb-1 ml-7 pr-2">
+												<div class="flex items-center gap-1.5">
+													<span class="shrink-0 text-[11px] text-slate-500">{m.color_by()}</span>
+													<select
+														class="min-w-0 flex-1 rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px] text-slate-600"
+														title={m.color_by_hint()}
+														value={colorField[l.key] ?? ''}
+														onchange={(e) => setColorField(l, e.currentTarget.value)}
+													>
+														<option value="">{m.color_flat()}</option>
+														{#if cf.numeric.length}
+															<optgroup label={m.color_numeric()}>
+																{#each cf.numeric as f (f)}<option value={f}>{f}</option>{/each}
+															</optgroup>
+														{/if}
+														{#if cf.categorical.length}
+															<optgroup label={m.color_categories()}>
+																{#each cf.categorical as f (f)}<option value={f}>{f}</option>{/each}
+															</optgroup>
+														{/if}
+													</select>
+												</div>
+												{#if colorField[l.key]}
+													{@const s = fieldStats[l.key]}
+													{#if s?.kind === 'numeric'}
+														{@const peak = Math.max(1, ...s.bins)}
+														<div class="mt-1.5 flex h-8 items-end gap-px" aria-hidden="true">
+															{#each s.bins as c, i (i)}
+																<div
+																	class="min-w-0 flex-1 rounded-sm"
+																	style="height:{Math.max(2, Math.round((c / peak) * 100))}%;background:{GRADUATED_RAMP[
+																		Math.min(
+																			GRADUATED_RAMP.length - 1,
+																			Math.floor((i / s.bins.length) * GRADUATED_RAMP.length)
+																		)
+																	][1]}"
+																></div>
+															{/each}
+														</div>
+														<div class="mt-1 h-1.5 rounded" style="background:{rampGradient}"></div>
+														<div class="mt-0.5 flex justify-between text-[10px] tabular-nums text-slate-400">
+															<span>{fmt(s.min)}</span>
+															<span>n={s.total}{#if l.serve === 'pmtiles'} ({m.sample_note()}){/if}</span>
+															<span>{fmt(s.max)}</span>
+														</div>
+													{:else if s?.kind === 'categorical'}
+														{@const peak = Math.max(1, ...s.items.map((it) => it.count))}
+														<ul class="mt-1.5 space-y-0.5">
+															{#each s.items.slice(0, 8) as it (it.value)}
+																<li class="flex items-center gap-1.5 text-[10px] text-slate-500">
+																	<span
+																		class="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
+																		style="background:{it.color}"
+																	></span>
+																	<span class="min-w-0 flex-1 truncate" title={it.value}>{it.value}</span>
+																	<span
+																		class="h-1.5 shrink-0 rounded-sm bg-slate-300"
+																		style="width:{Math.round((it.count / peak) * 36) + 2}px"
+																	></span>
+																	<span class="w-8 shrink-0 text-right tabular-nums text-slate-400">{it.count}</span>
+																</li>
+															{/each}
+															{#if s.items.length > 8}
+																<li class="text-[10px] text-slate-400">+{s.items.length - 8} …</li>
+															{/if}
+														</ul>
+													{/if}
 												{/if}
 											</div>
 										{/if}
