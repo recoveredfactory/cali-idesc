@@ -33,48 +33,56 @@ from dagster import AssetExecutionContext
 from .config import CALI_BBOX, Paths, WFS_BASE_URL
 
 DEM_LAYER = "raster:dem_modelo_elevacion_digital"
-# Long-side resolution of the baked image. The relief is an on-demand overlay,
-# so a few hundred KB is fine; 3000px keeps it crisp when zoomed into the hills.
-DEM_WIDTH = 3000
+# Long-side resolution of the baked image (px). Higher = crisper when zoomed into
+# the hills and better for high-res print export, at the cost of more WMS tiles +
+# larger PNGs. ~8000px ≈ 16 m/px over the Cali bbox.
+DEM_WIDTH = 8000
+# The IDESC WMS rejects a single GetMap above ~4096px ("MaxMemoryExceeded"), so
+# anything larger is fetched as a grid of sub-tiles (each ≤ this) and mosaicked.
+WMS_MAX_TILE = 4000
 
 # Named ramps: rendered gray value (0–255) -> R G B. Each becomes a selectable
 # relief style in the viewer. `default` (first) loads when relief is toggled on.
 RELIEF_RAMPS: list[dict] = [
     {
-        # Punchy, bold elevation read — green valley to brown Farallones. Default.
-        "id": "hipsometrico",
-        "label_es": "Hipsométrico",
-        "label_en": "Hypsometric",
-        "ramp": [
-            (0, 18, 105, 44), (70, 95, 180, 72), (130, 220, 205, 110),
-            (185, 200, 150, 80), (225, 168, 108, 72), (255, 250, 247, 240),
-        ],
-    },
-    {
-        # Punchy green lowlands fading to gray highlands.
-        "id": "verde_gris",
-        "label_es": "Verde a gris",
-        "label_en": "Green to gray",
-        "ramp": [
-            (0, 22, 120, 52), (70, 60, 165, 80), (140, 130, 180, 130),
-            (200, 180, 195, 190), (255, 224, 228, 230),
-        ],
-    },
-    {
-        # Saturated all-green ("green and more green").
+        # Emerald, gently desaturated toward gray (greens still dominate). Default.
         "id": "esmeralda",
         "label_es": "Esmeralda",
         "label_en": "Emerald",
         "ramp": [
-            (0, 14, 100, 50), (60, 30, 150, 80), (120, 70, 185, 100),
-            (185, 140, 205, 150), (255, 220, 238, 224),
+            (0, 30, 91, 56), (60, 53, 137, 88), (120, 91, 172, 112),
+            (185, 152, 197, 159), (255, 223, 236, 226),
         ],
     },
     {
-        "id": "gris",
-        "label_es": "Relieve gris",
-        "label_en": "Gray hillshade",
-        "ramp": [(0, 40, 44, 48), (128, 130, 134, 138), (255, 238, 240, 242)],
+        # Restored favorite: sandy valley floor rising to green hills.
+        "id": "arena_verde",
+        "label_es": "Arena y verde",
+        "label_en": "Sandy valley",
+        "ramp": [
+            (0, 216, 200, 158), (60, 200, 196, 140), (130, 150, 175, 100),
+            (195, 86, 140, 66), (255, 38, 102, 48),
+        ],
+    },
+    {
+        # Deeper olive — muted khaki/olive across the whole range.
+        "id": "oliva",
+        "label_es": "Oliva",
+        "label_en": "Olive",
+        "ramp": [
+            (0, 54, 58, 30), (70, 84, 88, 44), (140, 124, 124, 68),
+            (200, 168, 160, 104), (255, 214, 206, 156),
+        ],
+    },
+    {
+        # Dramatic dark-mode hillshade: near-black shadows to bright silver ridges.
+        "id": "oscuro",
+        "label_es": "Relieve oscuro",
+        "label_en": "Dark hillshade",
+        "ramp": [
+            (0, 8, 10, 14), (90, 38, 44, 54), (160, 96, 104, 118),
+            (215, 170, 178, 190), (255, 236, 240, 248),
+        ],
     },
 ]
 _R = 6378137.0  # WGS84 / web-mercator sphere radius
@@ -108,28 +116,56 @@ def build_dem_relief() -> dict:
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
-        src_png = tmp / "dem.png"
 
-        # 1. styled (grayscale, hillshaded) DEM over the bbox, mercator-rendered.
-        params = {
-            "service": "WMS", "version": "1.1.1", "request": "GetMap",
-            "layers": DEM_LAYER, "styles": "", "format": "image/png",
-            "transparent": "true", "srs": "EPSG:3857",
-            "width": str(width), "height": str(height),
-            "bbox": f"{x0},{y0},{x1},{y1}",
-        }
-        resp = requests.get(WFS_BASE_URL, params=params, timeout=180, allow_redirects=True)
-        resp.raise_for_status()
-        if "image" not in resp.headers.get("content-type", "").lower():
-            raise RuntimeError("WMS DEM did not return an image")
-        src_png.write_bytes(resp.content)
+        # 1. Styled (grayscale, hillshaded) DEM over the bbox, mercator-rendered.
+        #    The WMS caps a single GetMap at ~4096px, so split the image into a
+        #    grid of sub-tiles (each ≤ WMS_MAX_TILE) and mosaic them. Tiles are
+        #    georeferenced in north-up *pixel* space (positive args dodge GDAL's
+        #    negative-coord bug) so gdalbuildvrt stitches them back to width×height.
+        cols = math.ceil(width / WMS_MAX_TILE)
+        rows = math.ceil(height / WMS_MAX_TILE)
+        px = [round(width * c / cols) for c in range(cols + 1)]
+        py = [round(height * r / rows) for r in range(rows + 1)]
+        tile_tifs: list[str] = []
+        for r in range(rows):
+            for c in range(cols):
+                tw, th = px[c + 1] - px[c], py[r + 1] - py[r]
+                # Sub-bbox in mercator: x left→right, y top→bottom (row 0 = top).
+                xa = x0 + (x1 - x0) * px[c] / width
+                xb = x0 + (x1 - x0) * px[c + 1] / width
+                ytop = y1 - (y1 - y0) * py[r] / height
+                ybot = y1 - (y1 - y0) * py[r + 1] / height
+                params = {
+                    "service": "WMS", "version": "1.1.1", "request": "GetMap",
+                    "layers": DEM_LAYER, "styles": "", "format": "image/png",
+                    "transparent": "true", "srs": "EPSG:3857",
+                    "width": str(tw), "height": str(th),
+                    "bbox": f"{xa},{ybot},{xb},{ytop}",
+                }
+                resp = requests.get(WFS_BASE_URL, params=params, timeout=180, allow_redirects=True)
+                resp.raise_for_status()
+                if "image" not in resp.headers.get("content-type", "").lower():
+                    raise RuntimeError(f"WMS DEM tile ({c},{r}) did not return an image: {resp.text[:200]}")
+                tile_png = tmp / f"tile_{r}_{c}.png"
+                tile_png.write_bytes(resp.content)
+                # North-up pixel georef: uly = height - top_row, lry = height - bottom_row.
+                tile_tif = tmp / f"tile_{r}_{c}.tif"
+                _run([
+                    "gdal_translate", "-q", "-a_ullr",
+                    str(px[c]), str(height - py[r]), str(px[c + 1]), str(height - py[r + 1]),
+                    str(tile_png), str(tile_tif),
+                ])
+                tile_tifs.append(str(tile_tif))
+
+        src_vrt = tmp / "src.vrt"
+        _run(["gdalbuildvrt", "-q", str(src_vrt), *tile_tifs])
 
         # Shared inputs: gray band + the coverage mask (alpha), north-up so
         # gdalbuildvrt accepts them (positive args dodge GDAL's negative-coord bug).
         gray = tmp / "gray.tif"
         alpha_n = tmp / "alpha_n.tif"
-        _run(["gdal_translate", "-q", "-b", "1", str(src_png), str(gray)])
-        _run(["gdal_translate", "-q", "-b", "4", str(src_png), str(tmp / "alpha.tif")])
+        _run(["gdal_translate", "-q", "-b", "1", str(src_vrt), str(gray)])
+        _run(["gdal_translate", "-q", "-b", "4", str(src_vrt), str(tmp / "alpha.tif")])
         ullr = ["-a_ullr", "0", str(height), str(width), "0"]
         _run(["gdal_translate", "-q", *ullr, str(tmp / "alpha.tif"), str(alpha_n)])
 
