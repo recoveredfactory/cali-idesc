@@ -27,6 +27,8 @@
 	"dem_hint": "Modelo de elevación digital (DEM) del IDESC",
 	"base": "Base",
 	"base_hint": "Mostrar u ocultar el mapa base",
+	"mask": "Cali",
+	"mask_hint": "Recortar el mapa base al perímetro municipal de Cali (incluye los Farallones)",
 	"theme": "Tema",
 	"theme_hint": "Tema del mapa: base, relieve y colores de datos cambian juntos",
 	"extrude_3d": "3D",

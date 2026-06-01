@@ -27,3 +27,6 @@ project.inlang/cache/
 
 # Served pipeline outputs (symlink) + SvelteKit build
 static/data
+
+# transient: build-time stash of the static/data dev symlink (see ../cali-viewer-deploy/build-viewer.sh)
+.data-symlink.deploybak

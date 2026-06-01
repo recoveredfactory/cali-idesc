@@ -223,10 +223,25 @@ export function colorByExpr(layer: Layer, field: string): unknown | null {
 	return null;
 }
 
+// Line width when a line layer is colored by a NUMERIC field: gently widen with
+// the value so magnitude reads twice (hue + weight) and big segments are easier
+// to see/hit. Kept subtle — [min,max] maps onto [DATA_LINE_MIN, DATA_LINE_MAX]px.
+// Returns null for categorical / no-range fields (caller keeps the flat width).
+const DATA_LINE_MIN = 0.8;
+const DATA_LINE_MAX = 3.4;
+function lineWidthExpr(layer: Layer, field: string): unknown | null {
+	const range = layer.field_ranges?.[field];
+	if (!range) return null;
+	const [min, max] = range;
+	if (!(max > min)) return null;
+	return ['interpolate', ['linear'], ['to-number', ['get', field], min], min, DATA_LINE_MIN, max, DATA_LINE_MAX];
+}
+
 /** Live-recolor an already-added layer by `field` (or revert to the flat
  *  workspace color when `field` is null) without re-adding it. Sets fill/circle
  *  and the line outline; reverting restores the elevation line color on contour
- *  layers. */
+ *  layers. A numeric color field also gently scales line width (see
+ *  `lineWidthExpr`); reverting restores the flat width. */
 export function setLayerColor(map: maplibregl.Map, layer: Layer, field: string | null): void {
 	const expr = field ? colorByExpr(layer, field) : null;
 	const base = workspaceColor(layer.workspace);
@@ -241,6 +256,8 @@ export function setLayerColor(map: maplibregl.Map, layer: Layer, field: string |
 	if (map.getLayer(circle)) map.setPaintProperty(circle, 'circle-color', (expr ?? base) as never);
 	if (map.getLayer(line)) {
 		map.setPaintProperty(line, 'line-color', (expr ?? (hasElevation ? elevationColor() : base)) as never);
+		const lw = field ? lineWidthExpr(layer, field) : null;
+		map.setPaintProperty(line, 'line-width', (lw ?? 1.4) as never);
 	}
 }
 
@@ -358,6 +375,8 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 	}
 
 	// Lines (and polygon outlines): color by elevation whenever `cota` exists.
+	// When colored by a numeric field, the width gently tracks the value too.
+	const lineWidth = opts.colorField ? lineWidthExpr(layer, opts.colorField) : null;
 	map.addLayer({
 		id: lyrId(layer.key, 'line'),
 		type: 'line',
@@ -365,7 +384,10 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 		...sourceLayer,
 		filter: ['in', ['geometry-type'], ['literal', ['LineString', 'Polygon']]],
 		paint: colorExpr
-			? { 'line-color': colorExpr as unknown as string, 'line-width': 1.4 }
+			? {
+					'line-color': colorExpr as unknown as string,
+					'line-width': (lineWidth ?? 1.4) as unknown as number
+				}
 			: hasElevation
 				? { 'line-color': elevationColor() as unknown as string, 'line-width': 1.3 }
 				: { 'line-color': color, 'line-width': 1.4 }
@@ -492,6 +514,31 @@ export function inspectableLayerIds(map: maplibregl.Map): string[] {
 		.filter((id) => id.startsWith('lyr:'));
 }
 
+// --- Layer ordering helpers --------------------------------------------------
+
+/** First app-owned overlay (data `lyr:` or highlight `__hl`). Relief + mask sit
+ *  just below this so data and the highlight always stay on top. */
+function appTopBeforeId(map: maplibregl.Map): string | undefined {
+	return (map.getStyle().layers ?? [])
+		.map((l) => l.id)
+		.find((id) => id.startsWith('lyr:') || id.startsWith('__hl'));
+}
+
+/** Where relief sits in the UNMASKED stack: just under the basemap's roads /
+ *  boundaries / labels so the city stays legible over it; else under data. */
+function reliefBeforeId(map: maplibregl.Map): string | undefined {
+	const ids = (map.getStyle().layers ?? []).map((l) => l.id);
+	return (
+		ids.find(
+			(id) =>
+				id.startsWith('roads') ||
+				id.startsWith('boundaries') ||
+				id.startsWith('places') ||
+				id.startsWith('pois')
+		) ?? appTopBeforeId(map)
+	);
+}
+
 // --- DEM overlay (WMS raster) ------------------------------------------------
 
 const DEM_SRC = '__dem-src';
@@ -524,16 +571,9 @@ export function addDem(
 	// Lift the basemap's roads + boundaries + labels ABOVE the relief (insert it
 	// just under the first such layer) so the city stays legible, while land/water
 	// still read through the relief's transparency. Fall back to sitting just below
-	// our own data layers.
-	const ids = (map.getStyle().layers ?? []).map((l) => l.id);
-	const before =
-		ids.find(
-			(id) =>
-				id.startsWith('roads') ||
-				id.startsWith('boundaries') ||
-				id.startsWith('places') ||
-				id.startsWith('pois')
-		) ?? ids.find((id) => id.startsWith('lyr:') || id.startsWith('__hl'));
+	// our own data layers. When the Cali mask is active, `restackForMask` then
+	// raises the relief above the mask so it reads as a backdrop outside the city.
+	const before = reliefBeforeId(map);
 
 	const url = dem ? demVariantUrl(dem, variantId) : undefined;
 	if (dem && url) {
@@ -549,6 +589,7 @@ export function addDem(
 			{ id: DEM_LYR, type: 'raster', source: DEM_SRC, paint: { 'raster-opacity': opacity } },
 			before
 		);
+		restackForMask(map);
 		return;
 	}
 
@@ -566,6 +607,7 @@ export function addDem(
 		{ id: DEM_LYR, type: 'raster', source: DEM_SRC, paint: { 'raster-opacity': 0.7 } },
 		before
 	);
+	restackForMask(map);
 }
 
 export function removeDem(map: maplibregl.Map): void {
@@ -576,6 +618,99 @@ export function removeDem(map: maplibregl.Map): void {
 /** Set the relief raster opacity in place (themes use different values). */
 export function setReliefOpacity(map: maplibregl.Map, opacity: number): void {
 	if (map.getLayer(DEM_LYR)) map.setPaintProperty(DEM_LYR, 'raster-opacity', opacity);
+}
+
+// --- Cali mask ("just Cali") -------------------------------------------------
+// Crop the Protomaps basemap to the Santiago de Cali MUNICIPAL boundary (which
+// runs up to the Farallones crest — so the loma stays in, "lo demás es loma").
+// The mask is one fill covering the whole world with the municipality punched
+// out as a hole, painted the page-background color and stacked ABOVE the entire
+// basemap: outside the boundary the streets/water/labels vanish into the page.
+// `restackForMask` then lifts the relief (and the place/road LABELS) above the
+// mask, so the regional terrain still reads as a backdrop and city names stay
+// legible, while inside the hole the basemap shows through as usual.
+
+const MASK_SRC = '__mask-src';
+const MASK_LYR = '__mask';
+const PERIMETER_URL = 'geojson/idesc__mc_perimetro_municipal.geojson';
+// A ring spanning the whole map; Cali becomes a hole punched out of it. Rings
+// after the first are treated as holes by MapLibre's tessellator (by position,
+// independent of winding), so the municipal outline cleanly cuts the city out.
+const WORLD_RING: number[][] = [
+	[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]
+];
+// Basemap label layers kept ABOVE the relief while masked, so place/road names
+// stay readable over the terrain wash (same ids as the theme label tint list).
+const MASK_KEEP_ABOVE = [
+	'places_locality', 'places_subplace', 'places_region',
+	'roads_labels_major', 'roads_labels_minor', 'address_label'
+];
+
+let maskFeatureCache: GeoJSON.Feature<GeoJSON.Polygon> | null = null;
+let maskActive = false;
+
+/** Fetch the municipal perimeter once and build the world-minus-Cali polygon
+ *  (outer = world ring; each perimeter ring becomes a hole). Cached. */
+async function loadMaskFeature(): Promise<GeoJSON.Feature<GeoJSON.Polygon> | null> {
+	if (maskFeatureCache) return maskFeatureCache;
+	try {
+		const fc = (await fetch(`${DATA_BASE}/${PERIMETER_URL}`).then((r) => r.json())) as GeoJSON.FeatureCollection;
+		const rings: number[][][] = [WORLD_RING];
+		for (const f of fc.features ?? []) {
+			const g = f.geometry;
+			if (g?.type === 'Polygon') rings.push(g.coordinates[0] as number[][]);
+			else if (g?.type === 'MultiPolygon') for (const poly of g.coordinates) rings.push(poly[0] as number[][]);
+		}
+		maskFeatureCache = { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: rings } };
+		return maskFeatureCache;
+	} catch (e) {
+		console.error('[mask] failed to load Cali perimeter', e);
+		return null;
+	}
+}
+
+/** Keep the stacking right for the current mask state. Masked: mask above the
+ *  whole basemap, relief above the mask, labels above the relief. Unmasked:
+ *  relief drops back under the basemap roads. Idempotent; safe to call after any
+ *  relief/mask/layer change. */
+function restackForMask(map: maplibregl.Map): void {
+	if (maskActive && map.getLayer(MASK_LYR)) {
+		map.moveLayer(MASK_LYR, appTopBeforeId(map)); // mask above all basemap, below data
+		if (map.getLayer(DEM_LYR)) map.moveLayer(DEM_LYR, appTopBeforeId(map)); // relief above mask
+		for (const id of MASK_KEEP_ABOVE) if (map.getLayer(id)) map.moveLayer(id, appTopBeforeId(map)); // labels above relief
+	} else if (map.getLayer(DEM_LYR)) {
+		map.moveLayer(DEM_LYR, reliefBeforeId(map)); // restore: relief under the basemap roads
+	}
+}
+
+/** Add (or recolor) the Cali mask and lift the relief above it. Async only on
+ *  the first call (fetches + caches the perimeter); idempotent thereafter. */
+export async function addCaliMask(map: maplibregl.Map, color: string): Promise<void> {
+	const feature = await loadMaskFeature();
+	if (!feature) return;
+	if (!map.getSource(MASK_SRC)) map.addSource(MASK_SRC, { type: 'geojson', data: feature });
+	if (!map.getLayer(MASK_LYR)) {
+		map.addLayer(
+			{ id: MASK_LYR, type: 'fill', source: MASK_SRC, paint: { 'fill-color': color, 'fill-opacity': 1 } },
+			appTopBeforeId(map)
+		);
+	} else {
+		map.setPaintProperty(MASK_LYR, 'fill-color', color as never);
+	}
+	maskActive = true;
+	restackForMask(map);
+}
+
+/** Remove the Cali mask and drop the relief back under the basemap roads. */
+export function removeCaliMask(map: maplibregl.Map): void {
+	if (map.getLayer(MASK_LYR)) map.removeLayer(MASK_LYR);
+	maskActive = false;
+	restackForMask(map);
+}
+
+/** Update the mask color (e.g. on theme change) without re-adding it. */
+export function setMaskColor(map: maplibregl.Map, color: string): void {
+	if (map.getLayer(MASK_LYR)) map.setPaintProperty(MASK_LYR, 'fill-color', color as never);
 }
 
 // --- Basemap (Protomaps) visibility + road prominence -----------------------

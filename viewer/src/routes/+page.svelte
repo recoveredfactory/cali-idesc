@@ -15,6 +15,9 @@
 		inspectableLayerIds,
 		addDem,
 		removeDem,
+		addCaliMask,
+		removeCaliMask,
+		setMaskColor,
 		setBasemapVisible,
 		tuneBasemap,
 		tintBasemap,
@@ -46,6 +49,7 @@
 	let searchEl: HTMLInputElement | undefined;
 	let dem = $state(false);
 	let baseVisible = $state(true); // Protomaps basemap shown?
+	let maskOn = $state(true); // crop the basemap to the Cali municipal boundary
 	// The active theme bundles the basemap flavor, the paired relief variant, the
 	// data color ramps, the page background, and road/boundary tuning.
 	let activeTheme = $state<Theme>(DEFAULT_THEME);
@@ -356,6 +360,15 @@
 		tuneBasemap(map, activeTheme, dem && baseVisible);
 	}
 
+	/** Crop the basemap to the Cali municipal boundary (Farallones included): the
+	 *  surroundings become the page background, the relief stays as a backdrop. */
+	function toggleMask() {
+		if (!map) return;
+		maskOn = !maskOn;
+		if (maskOn) addCaliMask(map, activeTheme.background);
+		else removeCaliMask(map);
+	}
+
 	/** Show/hide the entire Protomaps basemap (data + relief stay). */
 	function toggleBase() {
 		if (!map) return;
@@ -378,6 +391,9 @@
 			dem: manifest?.dem,
 			recolorAll
 		});
+		// Live (same-flavor) themes keep the mask layer — just repaint it to the new
+		// page background. Flavor changes wipe it; `reapply` re-adds it below.
+		if (maskOn) setMaskColor(map, t.background);
 	}
 
 	/** Rebuild every app-owned layer after a basemap restyle (Dark toggle): relief
@@ -393,6 +409,8 @@
 			if (l) addLayer(map, l, optsFor(l));
 		}
 		ensureHighlight(map);
+		// The basemap restyle wiped the mask; re-add it above the rebuilt layers.
+		if (maskOn) addCaliMask(map, activeTheme.background);
 		syncPitch();
 	}
 
@@ -407,10 +425,28 @@
 		refreshAllStats();
 	}
 
+	// Thin lines (and small points) are hard to tap dead-on, so query a small box
+	// around the cursor when an exact hit misses. Exact hits still win, keeping the
+	// topmost feature under the pointer; the tolerance only rescues near-misses.
+	const HIT_TOL = 6; // px
+	function pickFeatures(point: MapMouseEvent['point']) {
+		if (!map) return [];
+		const ids = inspectableLayerIds(map);
+		if (!ids.length) return [];
+		const exact = map.queryRenderedFeatures(point, { layers: ids });
+		if (exact.length) return exact;
+		return map.queryRenderedFeatures(
+			[
+				[point.x - HIT_TOL, point.y - HIT_TOL],
+				[point.x + HIT_TOL, point.y + HIT_TOL]
+			],
+			{ layers: ids }
+		);
+	}
+
 	function onMapClick(e: MapMouseEvent) {
 		if (!map) return;
-		const ids = inspectableLayerIds(map);
-		const feats = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids }) : [];
+		const feats = pickFeatures(e.point);
 		if (!feats.length) {
 			closeInspector();
 			return;
@@ -437,9 +473,7 @@
 
 	function onMapMove(e: MapMouseEvent) {
 		if (!map) return;
-		const ids = inspectableLayerIds(map);
-		const hit = ids.length > 0 && map.queryRenderedFeatures(e.point, { layers: ids }).length > 0;
-		map.getCanvas().style.cursor = hit ? 'pointer' : '';
+		map.getCanvas().style.cursor = pickFeatures(e.point).length > 0 ? 'pointer' : '';
 	}
 
 	onMount(() => {
@@ -451,7 +485,11 @@
 		if (import.meta.env.DEV) (window as unknown as { __map: MLMap }).__map = map;
 		// Tint the base to the default theme once its layers exist (the raw light
 		// flavor doesn't match arena's tint).
-		map.on('load', () => map && tintBasemap(map, activeTheme));
+		map.on('load', () => {
+			if (!map) return;
+			tintBasemap(map, activeTheme);
+			if (maskOn) addCaliMask(map, activeTheme.background);
+		});
 		map.on('click', onMapClick);
 		map.on('mousemove', onMapMove);
 		// Once panning/zooming/tiling settles, refresh colored-layer stats so the
@@ -596,6 +634,14 @@
 						title={m.dem_hint()}
 						aria-pressed={dem}
 						onclick={toggleDem}>{m.dem()}</button>
+					<button
+						class="rounded-lg border px-2.5 py-1 text-xs font-medium
+						       {maskOn
+							? 'border-emerald-600 bg-emerald-600 text-white'
+							: 'border-slate-200 text-slate-600 hover:bg-slate-50'}"
+						title={m.mask_hint()}
+						aria-pressed={maskOn}
+						onclick={toggleMask}>{m.mask()}</button>
 					<button
 						class="rounded-lg border px-2.5 py-1 text-xs font-medium
 						       {baseVisible
