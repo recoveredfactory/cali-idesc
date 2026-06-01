@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Deploy the Cali viewer + its baked data to the shared basemap S3/CloudFront,
-# under the /cali-idesc prefix — same origin as pmtiles.grupovisual.org, so the
-# app, its layer tiles, and the basemap PMTiles are all one origin (no CORS).
+# Upload the Cali viewer's baked DATA (~7GB) to the shared basemap S3/CloudFront,
+# under the /cali-idesc/data prefix. Served from pmtiles.grupovisual.org.
 #
 #   ./deploy.sh
 #
-# Requires AWS credentials with access to the basemap bucket + distribution
-# (same account/region as ~/projects/basemap: acct 647111127395, us-east-1).
-# The clean URL (pmtiles.grupovisual.org/cali-idesc/) also needs the one-line
-# CloudFront rewrite in ~/projects/basemap/sst.config.ts to be deployed.
+# The FRONTEND is deployed separately — it lives on its own origin
+# (cali.recoveredfactory.net) via the sibling SST app ../cali-viewer-deploy.
+# See DEPLOY.md. The basemap CloudFront Function already CORS-allows
+# *.recoveredfactory.net, so the cross-origin range requests just work.
+#
+# Requires AWS credentials for the basemap account (647111127395, us-east-1).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VIEWER="$ROOT/viewer"
 DATA="$ROOT/pipeline/data"
 PREFIX="cali-idesc"
 export AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -27,34 +27,10 @@ fi
 BUCKET="${BUCKET:-basemap-prod-pmtilesbucketbucket-zxcemmvo}"
 DIST="${DIST:-EIT2ALX4WU5RE}"
 
-echo "Bucket=$BUCKET  Dist=$DIST  Prefix=/$PREFIX  Region=$AWS_REGION"
+echo "Bucket=$BUCKET  Dist=$DIST  Prefix=/$PREFIX/data  Region=$AWS_REGION"
 aws sts get-caller-identity >/dev/null || { echo "ERROR: no AWS credentials"; exit 1; }
 
-# 1. Build the viewer under the subpath, pointing data at /cali-idesc/data.
-#    The dev symlink viewer/static/data -> ../../pipeline/data must NOT be baked
-#    into the static build (adapter-static dereferences it and copies ~14GB).
-#    Move it aside for the build, then restore it.
-echo "==> building viewer"
-# Move the dev symlink (viewer/static/data -> ../../pipeline/data) OUT of static/
-# during the build: adapter-static would otherwise dereference it and copy ~14GB
-# into build/. (Tailwind is already scoped to src/ so it won't scan it either.)
-DATA_LINK="$VIEWER/static/data"
-DATA_BAK="$VIEWER/.data-symlink.deploybak" # outside static/
-restore_link() { [[ -e "$DATA_BAK" ]] && mv "$DATA_BAK" "$DATA_LINK"; }
-trap restore_link EXIT
-[[ -L "$DATA_LINK" ]] && mv "$DATA_LINK" "$DATA_BAK"
-( cd "$VIEWER" && BASE_PATH="/$PREFIX" VITE_DATA_BASE="/$PREFIX/data" pnpm build )
-restore_link; trap - EXIT
-
-# 2. Upload the app. Hashed _app/ assets cache forever; index.html must revalidate.
-echo "==> uploading app"
-aws s3 sync "$VIEWER/build/" "s3://$BUCKET/$PREFIX/" \
-  --delete --exclude "data/*" \
-  --cache-control "public, max-age=31536000, immutable"
-aws s3 cp "$VIEWER/build/index.html" "s3://$BUCKET/$PREFIX/index.html" \
-  --content-type "text/html" --cache-control "no-cache"
-
-# 3. Upload the served data subset with correct content-types (raw/ is NOT served).
+# Upload the served data subset with correct content-types (raw/ is NOT served).
 echo "==> uploading data (~7GB; first run is the slow one)"
 DST="s3://$BUCKET/$PREFIX/data"
 aws s3 cp "$DATA/layers.json" "$DST/layers.json" \
@@ -66,8 +42,8 @@ aws s3 sync "$DATA/geojson/" "$DST/geojson/" \
 aws s3 sync "$DATA/dem/" "$DST/dem/" --exclude "*" --include "*.png" \
   --content-type "image/png" --cache-control "public, max-age=86400"
 
-# 4. Invalidate so the new app + layers.json serve immediately.
+# Invalidate so a refreshed layers.json / data serves immediately.
 echo "==> invalidating CloudFront"
-aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/$PREFIX/*" >/dev/null
+aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/$PREFIX/data/*" >/dev/null
 
-echo "Done -> https://pmtiles.grupovisual.org/$PREFIX/"
+echo "Done -> https://pmtiles.grupovisual.org/$PREFIX/data/layers.json"
