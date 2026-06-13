@@ -24,6 +24,7 @@ export type FieldDef = {
 const COMMON: Record<string, FieldDef> = {
 	nombre: { es: 'Nombre', en: 'Name' },
 	direccion: { es: 'Dirección', en: 'Address' },
+	anno: { es: 'Año', en: 'Year' },
 	sentido: {
 		es: 'Sentido',
 		en: 'Direction',
@@ -35,6 +36,21 @@ const COMMON: Record<string, FieldDef> = {
 };
 
 const BY_WS: Record<string, Record<string, FieldDef>> = {
+	// Planning (DAPM): socioeconomic stratification census.
+	dapm: {
+		estestrato: {
+			es: 'Estrato socioeconómico',
+			en: 'Socioeconomic stratum',
+			desc_es: 'Estrato urbano del predio, 1 (bajo-bajo) a 6 (alto); 8/9 = no residencial.',
+			desc_en: 'Urban stratum of the property, 1 (lowest) to 6 (highest); 8/9 = non-residential.'
+		},
+		erestrato: {
+			es: 'Estrato socioeconómico',
+			en: 'Socioeconomic stratum',
+			desc_es: 'Estrato rural del predio, 1 (bajo-bajo) a 6 (alto); 8/9 = no residencial.',
+			desc_en: 'Rural stratum of the property, 1 (lowest) to 6 (highest); 8/9 = non-residential.'
+		}
+	},
 	// 2015 road-network study "Análisis Integral de la Red de Infraestructura Vial".
 	dapm_movilidad: {
 		id_tramo: { es: 'ID del tramo vial', en: 'Road-segment ID' },

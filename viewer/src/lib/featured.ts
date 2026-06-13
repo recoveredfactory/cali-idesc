@@ -58,6 +58,15 @@ export const FEATURED: Featured[] = [
 		layers: [{ key: 'dapm_movilidad__mv_aiv_cv_vpm_hpm', colorField: 'vpm_hpm' }]
 	},
 	{
+		id: 'congestion',
+		emoji: '🛑',
+		title_es: '¿Dónde se traba el tráfico?',
+		title_en: 'Where traffic jams up',
+		blurb_es: 'Nivel de servicio vial en la hora pico AM: de A (fluido) a F (colapsado).',
+		blurb_en: 'Road level of service in the morning peak: from A (free-flowing) to F (gridlock).',
+		layers: [{ key: 'dapm_movilidad__mv_aiv_cv_ns_hpm', colorField: 'los_hpm' }]
+	},
+	{
 		id: 'mio',
 		emoji: '🚌',
 		title_es: 'El MIO',
@@ -74,9 +83,9 @@ export const FEATURED: Featured[] = [
 		emoji: '🏘️',
 		title_es: 'Los estratos de Cali',
 		title_en: "Cali's strata",
-		blurb_es: 'Cada manzana coloreada por su estrato socioeconómico (1 a 6).',
-		blurb_en: 'Every block colored by its socioeconomic stratum (1 to 6).',
-		layers: [{ key: 'idesc__mc_manzanas', colorField: 'estrato' }]
+		blurb_es: 'Cada predio coloreado por su estrato socioeconómico, de 1 (bajo) a 6 (alto).',
+		blurb_en: 'Every property colored by its socioeconomic stratum, 1 (low) to 6 (high).',
+		layers: [{ key: 'dapm__pdt_est_estrato_urbano_expansion', colorField: 'estestrato' }]
 	},
 	{
 		id: 'crecimiento',
@@ -85,12 +94,7 @@ export const FEATURED: Featured[] = [
 		title_en: 'The growing city',
 		blurb_es: 'El perímetro urbano en 1962, 1980, 1991 y 2000: anillos de una ciudad en expansión.',
 		blurb_en: 'The urban perimeter in 1962, 1980, 1991 and 2000: rings of an expanding city.',
-		layers: [
-			{ key: 'idesc__mc_perimetro_urbano_anno_1962' },
-			{ key: 'idesc__mc_perimetro_urbano_anno_1980' },
-			{ key: 'idesc__mc_perimetro_urbano_anno_1991' },
-			{ key: 'idesc__mc_perimetro_urbano_anno_2000' }
-		]
+		layers: [{ key: 'idesc__mc_perimetro_urbano_anno_2000', colorField: 'anno' }]
 	},
 	{
 		id: 'inundacion',
@@ -117,9 +121,11 @@ export const FEATURED: Featured[] = [
 		emoji: '🔊',
 		title_es: '¿Dónde suena Cali?',
 		title_en: 'Where is Cali loud?',
-		blurb_es: 'Mediciones de ruido entre semana, de día, en decibelios.',
-		blurb_en: 'Weekday daytime noise measurements, in decibels.',
-		layers: [{ key: 'dagma__obs_rui_muestreo_semana_diurno', colorField: 'laeq_db' }]
+		blurb_es: 'Zonas de ruido entre semana, de día: cada polígono por su nivel en decibelios.',
+		blurb_en: 'Weekday daytime noise zones: each polygon by its level in decibels.',
+		layers: [
+			{ key: 'expediente_municipal__emc_amb_sos_ruido_semana_diurno', colorField: 'laeq_db' }
+		]
 	},
 	{
 		id: 'bici',
