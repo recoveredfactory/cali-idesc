@@ -173,52 +173,6 @@ export const THEMES: Theme[] = [
 		}
 	},
 	{
-		id: 'emerald',
-		label_es: 'Esmeralda',
-		label_en: 'Emerald',
-		flavor: 'light',
-		variant: 'esmeralda',
-		graduatedRamp: [
-			[0, '#0d7d6e'], [0.25, '#4fb39a'], [0.5, '#b9e3cf'], [0.75, '#f0d98a'], [1, '#d97b3a']
-		],
-		categoricalPalette: CATEGORICAL_PALETTE,
-		background: '#e9f1ec',
-		reliefOpacity: 0.85,
-		roadOpacity: 0.35,
-		hideRoadCasing: true,
-		boundaryOpacity: 0.5,
-		basemap: {
-			earth: '#e9f1ec',
-			water: '#bfe0d6',
-			green: '#c8e2c4',
-			labelHalo: '#ffffff',
-			labelHaloWidth: 1.8
-		}
-	},
-	{
-		id: 'olive',
-		label_es: 'Oliva',
-		label_en: 'Olive',
-		flavor: 'light',
-		variant: 'oliva',
-		graduatedRamp: [
-			[0, '#5c5a2e'], [0.25, '#8f8a4a'], [0.5, '#c8bf7e'], [0.75, '#d8a25a'], [1, '#a8542e']
-		],
-		categoricalPalette: CATEGORICAL_PALETTE,
-		background: '#e8e7da',
-		reliefOpacity: 0.85,
-		roadOpacity: 0.35,
-		hideRoadCasing: true,
-		boundaryOpacity: 0.5,
-		basemap: {
-			earth: '#e8e7da',
-			water: '#cdd2bf',
-			green: '#cfcf9e',
-			labelHalo: '#ffffff',
-			labelHaloWidth: 1.8
-		}
-	},
-	{
 		id: 'topo',
 		label_es: 'Topográfico',
 		label_en: 'Topo',

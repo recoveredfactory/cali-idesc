@@ -27,7 +27,7 @@
 		>
 			<div class="flex items-start gap-3">
 				<div class="min-w-0 flex-1 text-emerald-800">
-					<BrandMark glyphClass="h-7 w-7" textClass="text-xl" />
+					<BrandMark textClass="text-xl text-emerald-800" />
 					<p class="mt-1 text-xs text-slate-500">{m.brand_tagline()}</p>
 				</div>
 				<button

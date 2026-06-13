@@ -19,7 +19,7 @@
 		aria-label={m.about()}
 		onclick={() => (app.aboutOpen = true)}
 	>
-		<BrandMark glyphClass="h-5 w-5 text-emerald-700" textClass="text-[15px] max-[360px]:hidden" />
+		<BrandMark textClass="text-[15px] text-emerald-800 max-[360px]:hidden" />
 	</button>
 
 	<button
@@ -40,11 +40,6 @@
 			<path d="m13.5 13.5 4 4" />
 		</svg>
 		<span class="truncate text-sm text-slate-500">{m.search_placeholder()}</span>
-		{#if app.manifest}
-			<span class="ml-auto shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] tabular-nums text-slate-400">
-				{m.layers_count({ count: app.manifest.generated_layers })}
-			</span>
-		{/if}
 	</button>
 
 	<div

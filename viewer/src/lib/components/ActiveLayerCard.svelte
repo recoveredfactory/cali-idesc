@@ -18,7 +18,7 @@
 	import { leafTitle, titleOf, locale } from '$lib/i18n';
 	import LegendBlock from './LegendBlock.svelte';
 
-	let { layer }: { layer: Layer } = $props();
+	let { layer, onStyleOpen }: { layer: Layer; onStyleOpen?: () => void } = $props();
 
 	const style = $derived(app.styleByKey[layer.key] ?? {});
 	const colorable = $derived(hasColorableFields(layer));
@@ -60,7 +60,10 @@
 				title={m.style_layer()}
 				aria-label={m.style_layer()}
 				aria-expanded={open}
-				onclick={() => (open = !open)}
+				onclick={() => {
+					open = !open;
+					if (open) onStyleOpen?.();
+				}}
 			>
 				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="h-4 w-4" aria-hidden="true">
 					<path d="M3 6h14M3 10h14M3 14h14" />
