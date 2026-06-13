@@ -14,7 +14,8 @@ export type FeaturedLayerRef = {
 
 export type Featured = {
 	id: string;
-	emoji: string;
+	/** A small accent color (a dot) — a touch of color in place of an emoji. */
+	accent: string;
 	title_es: string;
 	title_en: string;
 	blurb_es: string;
@@ -29,7 +30,7 @@ export type Featured = {
 export const FEATURED: Featured[] = [
 	{
 		id: 'loma',
-		emoji: '⛰️',
+		accent: '#3f7d4f',
 		title_es: 'Lo demás es loma',
 		title_en: 'The rest is hillside',
 		blurb_es: 'El relieve de Cali con sus curvas de nivel, del valle a los Farallones.',
@@ -40,7 +41,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'edificios-3d',
-		emoji: '🏙️',
+		accent: '#64748b',
 		title_es: 'La ciudad en 3D',
 		title_en: 'The city in 3D',
 		blurb_es: 'Cada construcción de Cali, levantada según su número de pisos.',
@@ -50,7 +51,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'trafico',
-		emoji: '🚗',
+		accent: '#2c7bb6',
 		title_es: '¿A qué velocidad va el tráfico?',
 		title_en: 'How fast does traffic move?',
 		blurb_es: 'Velocidad promedio en la hora pico de la mañana, vía por vía (2015).',
@@ -59,7 +60,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'congestion',
-		emoji: '🛑',
+		accent: '#d7301f',
 		title_es: '¿Dónde se traba el tráfico?',
 		title_en: 'Where traffic jams up',
 		blurb_es: 'Nivel de servicio vial en la hora pico AM: de A (fluido) a F (colapsado).',
@@ -68,7 +69,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'mio',
-		emoji: '🚌',
+		accent: '#0e7490',
 		title_es: 'El MIO',
 		title_en: 'The MIO',
 		blurb_es: 'Rutas troncales y estaciones del transporte masivo.',
@@ -80,7 +81,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'estratos',
-		emoji: '🏘️',
+		accent: '#b45309',
 		title_es: 'Los estratos de Cali',
 		title_en: "Cali's strata",
 		blurb_es: 'Cada predio coloreado por su estrato socioeconómico, de 1 (bajo) a 6 (alto).',
@@ -89,7 +90,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'crecimiento',
-		emoji: '📈',
+		accent: '#c2410c',
 		title_es: 'La ciudad que crece',
 		title_en: 'The growing city',
 		blurb_es: 'El perímetro urbano en 1962, 1980, 1991 y 2000: anillos de una ciudad en expansión.',
@@ -98,7 +99,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'inundacion',
-		emoji: '🌊',
+		accent: '#2563eb',
 		title_es: 'Amenaza por inundación',
 		title_en: 'Flood hazard',
 		blurb_es: 'Zonas de amenaza por inundación fluvial según la CVC.',
@@ -109,7 +110,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'arboles',
-		emoji: '🌳',
+		accent: '#15803d',
 		title_es: 'El bosque urbano',
 		title_en: 'The urban forest',
 		blurb_es: 'Densidad de árboles en el área urbana, según el censo arbóreo.',
@@ -118,7 +119,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'ruido',
-		emoji: '🔊',
+		accent: '#db2777',
 		title_es: '¿Dónde suena Cali?',
 		title_en: 'Where is Cali loud?',
 		blurb_es: 'Zonas de ruido entre semana, de día: cada polígono por su nivel en decibelios.',
@@ -129,7 +130,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'bici',
-		emoji: '🚲',
+		accent: '#0d9488',
 		title_es: 'Cali en bici',
 		title_en: 'Cali by bike',
 		blurb_es: 'La red de cicloinfraestructura, por tipo de vía.',
@@ -138,7 +139,7 @@ export const FEATURED: Featured[] = [
 	},
 	{
 		id: 'comunas',
-		emoji: '🗺️',
+		accent: '#6366f1',
 		title_es: 'Comunas y barrios',
 		title_en: 'Comunas & neighborhoods',
 		blurb_es: 'Las 22 comunas y los 339 barrios que arman la ciudad.',

@@ -128,7 +128,7 @@
 											close();
 										}}
 									>
-										<span class="mt-0.5 text-xl leading-none" aria-hidden="true">{f.emoji}</span>
+										<span class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style="background:{f.accent}" aria-hidden="true"></span>
 										<span class="min-w-0">
 											<span class="block text-sm leading-snug font-medium text-slate-700">{featuredTitle(f)}</span>
 											<span class="block text-xs leading-snug text-slate-400">{featuredBlurb(f)}</span>

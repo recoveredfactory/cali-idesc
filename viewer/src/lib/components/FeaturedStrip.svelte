@@ -18,7 +18,12 @@
 		title={m.surprise_hint()}
 		onclick={() => app.surprise()}
 	>
-		<span class="text-2xl leading-none" aria-hidden="true">🎲</span>
+		<svg viewBox="0 0 24 24" fill="none" class="h-5 w-5 text-violet-500" aria-hidden="true">
+			<rect x="4" y="4" width="16" height="16" rx="4.5" stroke="currentColor" stroke-width="1.7" />
+			<circle cx="9" cy="9" r="1.25" fill="currentColor" />
+			<circle cx="12" cy="12" r="1.25" fill="currentColor" />
+			<circle cx="15" cy="15" r="1.25" fill="currentColor" />
+		</svg>
 		<span class="text-sm leading-snug font-semibold text-violet-700">
 			{app.randomKey ? m.surprise_again() : m.surprise()}
 		</span>
@@ -31,7 +36,7 @@
 			class="flex w-36 shrink-0 snap-start flex-col items-start gap-1.5 rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-left shadow-sm transition hover:border-slate-300 hover:shadow active:scale-[0.97] md:w-auto"
 			onclick={() => app.applyFeatured(f)}
 		>
-			<span class="text-2xl leading-none" aria-hidden="true">{f.emoji}</span>
+			<span class="h-3 w-3 rounded-full" style="background:{f.accent}" aria-hidden="true"></span>
 			<span class="line-clamp-2 text-sm leading-snug font-semibold text-slate-700">{featuredTitle(f)}</span>
 			<span class="hidden text-xs leading-snug text-slate-400 md:line-clamp-2">{featuredBlurb(f)}</span>
 		</button>
