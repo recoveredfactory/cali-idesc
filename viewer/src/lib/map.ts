@@ -46,6 +46,84 @@ export function getActiveGraduated(): [number, string][] {
 	return activeGraduated;
 }
 
+// --- categorical color assignment -------------------------------------------
+// Most categorical fields get the qualitative palette (one hue per value). But
+// ORDINAL categoricals — values that carry an inherent order, like Level of
+// Service "A".."F" or estrato "1: Bajo-bajo".."6: Alto" — read far better on the
+// theme's sequential ramp (light→intense = low→high) so magnitude shows. We
+// sniff ordinality from the value shape and, when found, color by rank.
+
+/** A rank function if `values` look ordinal (single A–G letters, or a leading
+ *  integer like "3: Medio-bajo"), else null. */
+function ordinalRank(values: string[]): ((v: string) => number) | null {
+	const vals = values.map((v) => v.trim()).filter(Boolean);
+	if (vals.length < 2) return null;
+	if (vals.every((v) => /^[A-Ga-g]$/.test(v))) return (v) => v.trim().toUpperCase().charCodeAt(0);
+	if (vals.every((v) => /^-?\d+/.test(v.trim()))) return (v) => parseInt(v.trim(), 10);
+	return null;
+}
+
+/** Mix two "#rrggbb" colors, `f` in [0,1]. */
+function hexLerp(c1: string, c2: string, f: number): string {
+	const p = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+	const [r1, g1, b1] = p(c1);
+	const [r2, g2, b2] = p(c2);
+	const m = (a: number, b: number) =>
+		Math.round(a + (b - a) * f)
+			.toString(16)
+			.padStart(2, '0');
+	return `#${m(r1, r2)}${m(g1, g2)}${m(b1, b2)}`;
+}
+
+/** Sample the active graduated ramp at t∈[0,1] → "#rrggbb" (JS-side, for legends
+ *  and ordinal categorical swatches; the map expression interpolates its own). */
+function rampColorAt(t: number): string {
+	const stops = activeGraduated;
+	const x = Math.max(0, Math.min(1, t));
+	let a = stops[0];
+	let b = stops[stops.length - 1];
+	for (let i = 0; i < stops.length - 1; i++) {
+		if (x >= stops[i][0] && x <= stops[i + 1][0]) {
+			a = stops[i];
+			b = stops[i + 1];
+			break;
+		}
+	}
+	const span = b[0] - a[0] || 1;
+	return hexLerp(a[1], b[1], (x - a[0]) / span);
+}
+
+/** A color per category value, index-aligned with `values`. Ordinal domains map
+ *  onto the graduated ramp by rank; everything else cycles the qualitative
+ *  palette. Shared by the map expression and the legend so they always agree. */
+function categoryColors(values: string[]): string[] {
+	const rank = ordinalRank(values);
+	if (rank) {
+		const sorted = [...new Set(values)].sort((p, q) => rank(p) - rank(q));
+		const n = sorted.length;
+		const byVal = new Map(sorted.map((v, i) => [v, rampColorAt(n === 1 ? 0.5 : i / (n - 1))]));
+		return values.map((v) => byVal.get(v) ?? activeCategoricalFallback);
+	}
+	return values.map((_, i) => activeCategorical[i % activeCategorical.length]);
+}
+
+// --- Boundary render treatment ----------------------------------------------
+// Administrative outlines (comunas, barrios) and historic perimeters read best
+// as crisp strokes over a barely-there fill — four nested same-color rings
+// otherwise turn to mud. Conservative: only low-feature polygon-ish layers whose
+// name marks them as a boundary/perimeter (a real choropleth keeps its fill).
+const BOUNDARY_NAME = /perimetro|perímetro|contorno|limite|límite|comuna|barrio|corregimiento|vereda/i;
+const FLAT_FILL_OPACITY = 0.5; // denser than the old 0.35 — choropleths read more solidly
+const BOUNDARY_FILL_OPACITY = 0.12;
+const BOUNDARY_LINE_WIDTH = 2.2;
+
+function isBoundaryLayer(layer: Layer): boolean {
+	const g = (layer.geometry_type ?? '').toLowerCase();
+	if (!(g.includes('polygon') || g.includes('unknown'))) return false;
+	if ((layer.feature_count ?? 0) > 600) return false; // skips manzanas, predios, …
+	return BOUNDARY_NAME.test(layer.key) || BOUNDARY_NAME.test(layer.typename ?? '');
+}
+
 // Basemap = the grupovisual Protomaps planet build (single PMTiles, range-served).
 const BASEMAP_PMTILES = 'pmtiles://https://pmtiles.grupovisual.org/latest.pmtiles';
 
@@ -217,7 +295,8 @@ export function colorByExpr(layer: Layer, field: string): unknown | null {
 	}
 	const cats = layer.field_categories?.[field];
 	if (cats?.length) {
-		const pairs = cats.flatMap((v, i) => [v, activeCategorical[i % activeCategorical.length]]);
+		const colors = categoryColors(cats);
+		const pairs = cats.flatMap((v, i) => [v, colors[i]]);
 		return ['match', ['to-string', ['get', field]], ...pairs, activeCategoricalFallback];
 	}
 	return null;
@@ -256,8 +335,10 @@ export function setLayerColor(map: maplibregl.Map, layer: Layer, field: string |
 	if (map.getLayer(circle)) map.setPaintProperty(circle, 'circle-color', (expr ?? base) as never);
 	if (map.getLayer(line)) {
 		map.setPaintProperty(line, 'line-color', (expr ?? (hasElevation ? elevationColor() : base)) as never);
-		const lw = field ? lineWidthExpr(layer, field) : null;
-		map.setPaintProperty(line, 'line-width', (lw ?? 1.4) as never);
+		const lw = isBoundaryLayer(layer)
+			? BOUNDARY_LINE_WIDTH
+			: (field ? lineWidthExpr(layer, field) : null) ?? 1.4;
+		map.setPaintProperty(line, 'line-width', lw as never);
 	}
 }
 
@@ -308,9 +389,10 @@ export function computeFieldStats(map: maplibregl.Map, layer: Layer, field: stri
 			counts.set(v, (counts.get(v) ?? 0) + 1);
 			total++;
 		}
+		const colors = categoryColors(cats);
 		const items = cats.map((value, i) => ({
 			value,
-			color: activeCategorical[i % activeCategorical.length],
+			color: colors[i],
 			count: counts.get(value) ?? 0
 		}));
 		return { kind: 'categorical', field, items, total };
@@ -341,6 +423,9 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 	// fill/circle and the line outline so it survives extrude-driven re-adds.
 	const colorExpr = opts.colorField ? colorByExpr(layer, opts.colorField) : null;
 	const fillColor = (colorExpr ?? color) as never;
+	// Boundaries (admin outlines, historic perimeters) render as stroke-forward
+	// outlines with a faint fill, never the flat translucent wash.
+	const boundary = isBoundaryLayer(layer);
 
 	// Polygons: flat fill, or extruded when this layer is in 3D with a chosen field.
 	if (extrudeField) {
@@ -370,27 +455,35 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 			source: srcId(layer.key),
 			...sourceLayer,
 			filter: ['==', ['geometry-type'], 'Polygon'],
-			paint: { 'fill-color': fillColor, 'fill-opacity': 0.35 }
+			paint: {
+				'fill-color': fillColor,
+				'fill-opacity': boundary ? BOUNDARY_FILL_OPACITY : FLAT_FILL_OPACITY
+			}
 		});
 	}
 
 	// Lines (and polygon outlines): color by elevation whenever `cota` exists.
-	// When colored by a numeric field, the width gently tracks the value too.
-	const lineWidth = opts.colorField ? lineWidthExpr(layer, opts.colorField) : null;
+	// Boundaries get a heavy flat stroke; otherwise a numeric color field gently
+	// scales the width so magnitude reads as weight too.
+	const lineWidth = boundary
+		? BOUNDARY_LINE_WIDTH
+		: opts.colorField
+			? lineWidthExpr(layer, opts.colorField) ?? 1.4
+			: hasElevation
+				? 1.3
+				: 1.4;
+	const lineColor = colorExpr ?? (hasElevation ? elevationColor() : color);
 	map.addLayer({
 		id: lyrId(layer.key, 'line'),
 		type: 'line',
 		source: srcId(layer.key),
 		...sourceLayer,
 		filter: ['in', ['geometry-type'], ['literal', ['LineString', 'Polygon']]],
-		paint: colorExpr
-			? {
-					'line-color': colorExpr as unknown as string,
-					'line-width': (lineWidth ?? 1.4) as unknown as number
-				}
-			: hasElevation
-				? { 'line-color': elevationColor() as unknown as string, 'line-width': 1.3 }
-				: { 'line-color': color, 'line-width': 1.4 }
+		paint: {
+			'line-color': lineColor as unknown as string,
+			'line-width': lineWidth as unknown as number,
+			'line-opacity': boundary ? 0.95 : 1
+		}
 	});
 
 	// Points: fixed dots, or value-scaled when this layer is in 3D with a chosen field.

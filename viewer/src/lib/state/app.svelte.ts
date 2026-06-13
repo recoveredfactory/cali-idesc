@@ -34,6 +34,7 @@ import {
 	type FieldStats
 } from '$lib/map';
 import type { Featured } from '$lib/featured';
+import { autoStyle } from '$lib/autostyle';
 
 /** Per-layer render style the user can change (all optional = defaults). */
 export type LayerStyle = {
@@ -113,6 +114,10 @@ class AppState {
 	enable(l: Layer, style?: LayerStyle, fly = true): void {
 		if (!this.map || l.serve === 'empty' || !l.url) return;
 		if (this.active.includes(l.key)) return;
+		// Ad-hoc adds (browser tap, 🎲 surprise) arrive un-styled — pick a smart
+		// default so the layer reads as data, not a flat blob. Curated featured
+		// views and shared links pass their own (possibly empty) style and keep it.
+		if (style === undefined) style = autoStyle(l);
 		if (style && (style.colorField || style.extrude || style.extrudeField)) {
 			this.styleByKey[l.key] = {
 				...style,
