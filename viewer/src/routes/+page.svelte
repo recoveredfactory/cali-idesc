@@ -104,7 +104,7 @@
 </script>
 
 <svelte:head>
-	<title>lo demás es mapa — {m.brand_tagline()}</title>
+	<title>Mapas Cali — {m.brand_tagline()}</title>
 	<meta name="description" content={m.about_riff()} />
 </svelte:head>
 
