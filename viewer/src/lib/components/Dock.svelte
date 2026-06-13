@@ -3,7 +3,8 @@
 	// snaps between three discrete stops (peek / half / full); on ≥md it's a
 	// docked left panel (auto height). Empty state = the curated front door
 	// (featured strip on phones, a grid on desktop); otherwise the active-layer
-	// manager.
+	// manager. The catalog button + map settings stay pinned below the scrolling
+	// list so they never require a scroll to reach on desktop.
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
 	import ActiveLayerCard from './ActiveLayerCard.svelte';
@@ -99,56 +100,61 @@
 		<div class="mx-auto h-1.5 w-10 rounded-full bg-slate-300"></div>
 	</button>
 
-	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto pt-1 md:pt-4">
-		{#if !app.manifest}
-			<p class="px-4 py-4 text-sm text-slate-400">{m.loading()}</p>
-		{:else if !app.activeLayers.length}
-			<!-- front door: nothing on the map yet -->
-			<p class="shrink-0 px-4 pb-2 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
-				{m.featured()}
-			</p>
-			<FeaturedStrip />
-			<button
-				type="button"
-				class="mx-4 mt-3 flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 text-sm font-semibold text-slate-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700"
-				onclick={() => (app.browserOpen = true)}
-			>
-				<span class="text-lg leading-none" aria-hidden="true">＋</span>{m.browse_catalog()}
-			</button>
-		{:else}
-			<!-- active layer manager -->
-			<div class="flex shrink-0 items-center gap-2 px-4 pb-2">
-				<span class="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
-					{m.active_layers()} · {app.activeLayers.length}
-				</span>
+	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto pt-1 md:overflow-hidden md:pt-4">
+		<!-- The list scrolls; on desktop it's the ONLY scroll region, so the catalog
+		     button + settings pinned below it never need a scroll to reach. -->
+		<div class="flex min-h-0 flex-col md:flex-1 md:overflow-y-auto">
+			{#if !app.manifest}
+				<p class="px-4 py-4 text-sm text-slate-400">{m.loading()}</p>
+			{:else if !app.activeLayers.length}
+				<!-- front door: nothing on the map yet -->
+				<p class="shrink-0 px-4 pb-2 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+					{m.featured()}
+				</p>
+				<FeaturedStrip />
+			{:else}
+				<!-- active layer manager -->
+				<div class="flex shrink-0 items-center gap-2 px-4 pb-2">
+					<span class="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
+						{m.active_layers()} · {app.activeLayers.length}
+					</span>
+					<button
+						type="button"
+						class="ml-auto shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
+						onclick={() => app.clearAll()}>{m.clear_all()}</button>
+				</div>
+				<div class="shrink-0 space-y-2 px-3">
+					{#each app.activeLayers as l (l.key)}
+						<ActiveLayerCard layer={l} {onStyleOpen} />
+					{/each}
+				</div>
+			{/if}
+		</div>
+
+		<!-- Pinned bottom: one contextual catalog button, the map settings, and the
+		     footer. No mt-auto (it trapped a gap of whitespace on the mobile sheet). -->
+		{#if app.manifest}
+			<div class="shrink-0">
 				<button
 					type="button"
-					class="ml-auto shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
-					onclick={() => app.clearAll()}>{m.clear_all()}</button>
+					class="mx-3 mt-2.5 mb-1 flex h-11 items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 text-sm font-semibold text-slate-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700"
+					onclick={() => (app.browserOpen = true)}
+				>
+					<span class="text-lg leading-none" aria-hidden="true">+</span>{app.activeLayers.length
+						? m.add_layers()
+						: m.browse_catalog()}
+				</button>
+				<div class="border-t border-black/5 px-4 py-3">
+					<MapSettings />
+				</div>
+				<footer
+					class="border-t border-black/5 px-4 py-2 text-[11px] text-slate-400"
+					style="padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px))"
+				>
+					{m.attribution()}
+				</footer>
 			</div>
-			<div class="shrink-0 space-y-2 px-3">
-				{#each app.activeLayers as l (l.key)}
-					<ActiveLayerCard layer={l} {onStyleOpen} />
-				{/each}
-			</div>
-			<button
-				type="button"
-				class="mx-3 mt-2.5 mb-1 flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 text-sm font-semibold text-slate-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700"
-				onclick={() => (app.browserOpen = true)}
-			>
-				<span class="text-lg leading-none" aria-hidden="true">＋</span>{m.add_layers()}
-			</button>
 		{/if}
-
-		<div class="mt-auto shrink-0 border-t border-black/5 px-4 py-3">
-			<MapSettings />
-		</div>
-		<footer
-			class="shrink-0 border-t border-black/5 px-4 py-2 text-[11px] text-slate-400"
-			style="padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px))"
-		>
-			{m.attribution()}
-		</footer>
 	</div>
 </section>
 
