@@ -98,11 +98,6 @@ export function serializeState(map: MLMap | undefined): string {
 /** Restore a parsed hash into the app (call once map + manifest are ready). */
 export function restoreState(state: UrlState): void {
 	if (!app.map) return;
-	// Theme first so restored layers pick up the right ramps.
-	if (state.theme) {
-		const t = THEMES.find((x) => x.id === state.theme);
-		if (t) app.pickTheme(t);
-	}
 	if (state.dem === true && !app.dem) app.toggleDem();
 	if (state.mask === false && app.maskOn) app.toggleMask();
 	if (state.base === false && app.baseVisible) app.toggleBase();
@@ -110,6 +105,13 @@ export function restoreState(state: UrlState): void {
 	for (const { key, style } of state.layers) {
 		const l = app.layer(key);
 		if (l) app.enable(l, style, false);
+	}
+	// Theme LAST. A flavor change (Dark) restyles the basemap and rebuilds the
+	// active layers via reapply(), so they must already be enabled; recolorAll
+	// then re-applies the theme's ramps to them. (Light themes recolor live.)
+	if (state.theme && state.theme !== app.themeId) {
+		const t = THEMES.find((x) => x.id === state.theme);
+		if (t) app.pickTheme(t);
 	}
 	if (state.cam) {
 		app.map.jumpTo({

@@ -155,19 +155,22 @@ export const THEMES: Theme[] = [
 		label_en: 'Original',
 		flavor: 'light',
 		variant: 'original',
+		// Warm "Cali heat" sequential — saturated amber → deep wine, monotonic
+		// in lightness so mid-values separate. Pops on cream and over the green
+		// loma where the old green→tan ramp read as green-on-green.
 		graduatedRamp: [
-			[0, '#1a6b3c'], [0.25, '#6fae6a'], [0.5, '#cfe0a0'], [0.75, '#e8c46a'], [1, '#a85a1e']
+			[0, '#ffd24a'], [0.25, '#f7a23b'], [0.5, '#ea5f33'], [0.75, '#c0392b'], [1, '#7c1f3d']
 		],
 		categoricalPalette: CATEGORICAL_PALETTE,
 		background: '#f0ebda',
-		reliefOpacity: 0.85,
+		reliefOpacity: 0.82,
 		roadOpacity: 0.35,
 		hideRoadCasing: true,
 		boundaryOpacity: 0.5,
 		basemap: {
 			earth: '#f0ebda',
-			water: '#b6d2c6',
-			green: '#cddaa8',
+			water: '#a7c9d4',
+			green: '#c8d79c',
 			labelHalo: '#ffffff',
 			labelHaloWidth: 1.8
 		}
@@ -178,8 +181,10 @@ export const THEMES: Theme[] = [
 		label_en: 'Topo',
 		flavor: 'light',
 		variant: 'topo',
+		// Cool counterpoint to the warm sepia base + brown relief — teal → deep
+		// indigo. Cool data separates cleanly from the warm terrain.
 		graduatedRamp: [
-			[0, '#2c6e8f'], [0.25, '#7cb0c4'], [0.5, '#f0e3c8'], [0.75, '#e0a35a'], [1, '#a8432a']
+			[0, '#86e0d0'], [0.25, '#37b0bd'], [0.5, '#2a82b8'], [0.75, '#2b53a0'], [1, '#27286b']
 		],
 		categoricalPalette: CATEGORICAL_PALETTE,
 		background: '#efe7d6',
@@ -189,8 +194,8 @@ export const THEMES: Theme[] = [
 		boundaryOpacity: 0.5,
 		basemap: {
 			earth: '#efe7d6',
-			water: '#c7d4cf',
-			green: '#dcd3ad',
+			water: '#b6cdd2',
+			green: '#d9cfa6',
 			labelHalo: '#ffffff',
 			labelHaloWidth: 1.8
 		}
@@ -201,8 +206,11 @@ export const THEMES: Theme[] = [
 		label_en: 'Slate',
 		flavor: 'light',
 		variant: 'slate',
+		// Viridis (truncated short of pale yellow so the high end stays legible
+		// on the light slate base): perceptually uniform, colorblind-safe, and
+		// reads as "data" — the cleanest, most civic of the four.
 		graduatedRamp: [
-			[0, '#08519c'], [0.25, '#6baed6'], [0.5, '#c6dbef'], [0.75, '#fdae6b'], [1, '#e6550d']
+			[0, '#46327e'], [0.25, '#365c8d'], [0.5, '#21908d'], [0.75, '#36a86e'], [1, '#8fd744']
 		],
 		categoricalPalette: CATEGORICAL_PALETTE,
 		background: '#eef2f6',
@@ -212,8 +220,8 @@ export const THEMES: Theme[] = [
 		boundaryOpacity: 0.5,
 		basemap: {
 			earth: '#eef2f6',
-			water: '#c4d2e2',
-			green: '#cdd6cf',
+			water: '#bcd2e6',
+			green: '#cdd9cf',
 			labelHalo: '#ffffff',
 			labelHaloWidth: 1.8
 		}
@@ -224,15 +232,17 @@ export const THEMES: Theme[] = [
 		label_en: 'Dark',
 		flavor: 'dark',
 		variant: 'oscuro',
+		// Bright, glowing turbo on black — low values stay luminous enough to see
+		// as thin lines, high values pop hot. Monotonic-ish so magnitude reads.
 		graduatedRamp: [
-			[0, '#3aa0ff'], [0.25, '#7fd4c0'], [0.5, '#ffe08a'], [0.75, '#ff9f5a'], [1, '#ff5d6c']
+			[0, '#39a0ff'], [0.25, '#2fd6c2'], [0.5, '#9be84f'], [0.75, '#ffc23a'], [1, '#ff5d5d']
 		],
 		categoricalPalette: CATEGORICAL_PALETTE_DARK,
 		background: '#000000',
 		// Relief sits over a true-black base: shadows (near-black ramp) read black,
-		// ridges lift to bright slate. Higher opacity than before so the highlights
-		// actually show through instead of the map feeling uniformly too dark.
-		reliefOpacity: 0.75,
+		// ridges lift to bright slate. A touch higher opacity so the loma actually
+		// reads instead of the map feeling uniformly too dark.
+		reliefOpacity: 0.82,
 		roadOpacity: 0.4,
 		hideRoadCasing: true,
 		boundaryOpacity: 0.3,
