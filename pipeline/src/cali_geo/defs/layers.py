@@ -180,7 +180,14 @@ def layer_pmtiles(context: AssetExecutionContext, layer_geojson: dict) -> dict:
         serve, url, pmtiles_bytes = "empty", None, 0
     elif fc > PMTILES_FEATURE_THRESHOLD or nbytes > PMTILES_BYTES_THRESHOLD:
         dst = Paths.pmtiles / f"{key}.pmtiles"
-        to_pmtiles(Paths.geojson / f"{key}.geojson", dst, layer=key)
+        # Buildings (a layer carrying floor counts) thin too fast zoomed out, and
+        # the dropped ones should be the SHORT buildings so landmarks persist.
+        # Order tallest-first (densest-as-needed then keeps them) and give each
+        # tile a bigger byte budget so it thins less aggressively.
+        extra = None
+        if "npisos" in (frag.get("fields") or []):
+            extra = ["--order-descending-by=npisos", "--maximum-tile-bytes=1000000"]
+        to_pmtiles(Paths.geojson / f"{key}.geojson", dst, layer=key, extra_args=extra)
         serve = "pmtiles"
         url = f"pmtiles/{key}.pmtiles"
         pmtiles_bytes = dst.stat().st_size
