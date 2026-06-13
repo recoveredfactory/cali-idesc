@@ -11,7 +11,7 @@
 	import { app } from '$lib/state/app.svelte';
 	import { workspaceColor } from '$lib/map';
 	import { workspaceLabel } from '$lib/workspaces';
-	import { locale, titleOf, featuredTitle, featuredBlurb } from '$lib/i18n';
+	import { locale, titleOf, leafTitle, categoryOf, featuredTitle, featuredBlurb } from '$lib/i18n';
 
 	let search = $state('');
 	let searchEl: HTMLInputElement | undefined = $state();
@@ -181,9 +181,12 @@
 														: 'border-slate-300 text-transparent'}"
 													aria-hidden="true">✓</span>
 												<span class="min-w-0">
-													<span class="block text-sm leading-snug text-slate-700">{titleOf(l)}</span>
-													<span class="block text-[11px] text-slate-400">
-														{#if dead}{m.no_geometry()}{:else}{m.feature_count({ count: l.feature_count })}{/if}
+													<span class="block truncate text-sm leading-snug text-slate-700" title={titleOf(l)}>{leafTitle(l)}</span>
+													<span class="flex items-center gap-1.5 text-[11px] text-slate-400">
+														{#if categoryOf(l)}
+															<span class="max-w-[55%] shrink truncate rounded bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-500">{categoryOf(l)}</span>
+														{/if}
+														<span class="shrink-0">{#if dead}{m.no_geometry()}{:else}{m.feature_count({ count: l.feature_count })}{/if}</span>
 													</span>
 												</span>
 											</button>

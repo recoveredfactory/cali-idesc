@@ -23,6 +23,20 @@ export const leafTitle = (l: Layer): string => {
 	return i >= 0 && t.slice(i + 1).trim() ? t.slice(i + 1).trim() : t;
 };
 
+/** The immediate category of a layer — the segment just before the ':' (the last
+ *  " - "-delimited part of the head), e.g. "Infraestructura Cultural" or
+ *  "Catastro". Empty when the title is a bare leaf. Used as a short context chip
+ *  so cards can lead with the distinguishing `leafTitle` instead of the full
+ *  "Area - Category - Sub: Specific" string. */
+export const categoryOf = (l: Layer): string => {
+	const t = titleOf(l);
+	const colon = t.lastIndexOf(':');
+	const head = (colon >= 0 ? t.slice(0, colon) : '').trim();
+	if (!head) return '';
+	const dash = head.lastIndexOf(' - ');
+	return (dash >= 0 ? head.slice(dash + 3) : head).trim();
+};
+
 export const themeLabel = (t: Theme): string => (locale === 'en' ? t.label_en : t.label_es);
 
 export const featuredTitle = (f: Featured): string =>
