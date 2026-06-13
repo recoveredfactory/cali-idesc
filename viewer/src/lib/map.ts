@@ -514,6 +514,28 @@ export function inspectableLayerIds(map: maplibregl.Map): string[] {
 		.filter((id) => id.startsWith('lyr:'));
 }
 
+// Thin lines (and small points) are hard to tap dead-on, so query a small box
+// around the cursor when an exact hit misses. Exact hits still win, keeping the
+// topmost feature under the pointer; the tolerance only rescues near-misses.
+const HIT_TOL = 6; // px
+
+export function pickFeatures(
+	map: maplibregl.Map,
+	point: { x: number; y: number }
+): maplibregl.MapGeoJSONFeature[] {
+	const ids = inspectableLayerIds(map);
+	if (!ids.length) return [];
+	const exact = map.queryRenderedFeatures(point as maplibregl.PointLike, { layers: ids });
+	if (exact.length) return exact;
+	return map.queryRenderedFeatures(
+		[
+			[point.x - HIT_TOL, point.y - HIT_TOL],
+			[point.x + HIT_TOL, point.y + HIT_TOL]
+		],
+		{ layers: ids }
+	);
+}
+
 // --- Layer ordering helpers --------------------------------------------------
 
 /** First app-owned overlay (data `lyr:` or highlight `__hl`). Relief + mask sit
