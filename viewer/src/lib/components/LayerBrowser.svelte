@@ -12,6 +12,7 @@
 	import { workspaceColor } from '$lib/map';
 	import { workspaceLabel } from '$lib/workspaces';
 	import { locale, titleOf, leafTitle, categoryOf, featuredTitle, featuredBlurb } from '$lib/i18n';
+	import FeaturedIcon from './FeaturedIcon.svelte';
 
 	let search = $state('');
 	let searchEl: HTMLInputElement | undefined = $state();
@@ -128,7 +129,7 @@
 											close();
 										}}
 									>
-										<span class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style="background:{f.accent}" aria-hidden="true"></span>
+										<FeaturedIcon id={f.id} accent={f.accent} size="h-5 w-5" />
 										<span class="min-w-0">
 											<span class="block text-sm leading-snug font-medium text-slate-700">{featuredTitle(f)}</span>
 											<span class="block text-xs leading-snug text-slate-400">{featuredBlurb(f)}</span>
