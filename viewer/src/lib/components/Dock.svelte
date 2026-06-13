@@ -101,9 +101,11 @@
 	</button>
 
 	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto pt-1 md:overflow-hidden md:pt-4">
-		<!-- The list scrolls; on desktop it's the ONLY scroll region, so the catalog
-		     button + settings pinned below it never need a scroll to reach. -->
-		<div class="flex min-h-0 flex-col md:flex-1 md:overflow-y-auto">
+		<!-- On desktop this is the ONLY scroll region, so the catalog button +
+		     settings pinned below it never need a scroll to reach. On mobile it must
+		     NOT shrink (shrink-0) — otherwise the featured strip collapses and spills
+		     over the pinned controls; the whole sheet scrolls instead. -->
+		<div class="flex shrink-0 flex-col md:min-h-0 md:flex-1 md:shrink md:overflow-y-auto">
 			{#if !app.manifest}
 				<p class="px-4 py-4 text-sm text-slate-400">{m.loading()}</p>
 			{:else if !app.activeLayers.length}
