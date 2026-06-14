@@ -1,0 +1,16 @@
+# An *instance* of the WfsLayerSet component (the type lives in
+# cali_geo/components/). Add a layer = add three lines here. No Python.
+# Then run `dg dev` and watch the assets + checks appear in the graph.
+type: cali_geo.components.WfsLayerSet
+
+attributes:
+  group_name: featured
+  layers:
+    - typename: idesc:mc_comunas
+      title: Comunas de Cali
+    - typename: idesc:mc_barrios
+      title: Barrios y sectores
+    - typename: idesc:mc_corregimientos
+      title: Corregimientos
+    - typename: pot_2014:amb_eep_aeie_ecoparques
+      title: Ecoparques (POT 2014)
