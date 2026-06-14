@@ -12,6 +12,7 @@ import json
 import dagster as dg
 from dagster import AssetExecutionContext
 
+from .catalog import wfs_catalog
 from .config import (
     CALI_BBOX,
     PMTILES_BYTES_THRESHOLD,
@@ -24,6 +25,7 @@ from .dem import dem_relief
 from .partitions import layer_partitions
 from .resources import WfsResource
 from .shell import ShellError, convert, ogrinfo_summary, reproject, to_pmtiles
+from .translations import layer_translations
 
 _RETRY = dg.RetryPolicy(max_retries=3, delay=5.0, backoff=dg.Backoff.EXPONENTIAL)
 
@@ -61,6 +63,7 @@ def _write_fragment(key: str, data: dict) -> None:
 
 
 @dg.asset(
+    deps=[wfs_catalog],  # reads catalog.json + the dynamic partitions wfs_catalog seeds
     partitions_def=layer_partitions,
     group_name="layers",
     retry_policy=_RETRY,
@@ -256,7 +259,7 @@ def _heal_fields(frag: dict) -> bool:
 
 
 @dg.asset(
-    deps=[layer_pmtiles, dem_relief],
+    deps=[layer_pmtiles, dem_relief, layer_translations],  # reads translations.json
     group_name="manifest",
     description="Inventory per-layer fragments + translations into dist/layers.json.",
 )
