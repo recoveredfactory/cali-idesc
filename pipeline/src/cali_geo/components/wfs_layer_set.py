@@ -22,8 +22,10 @@ from collections.abc import Sequence
 import dagster as dg
 from dagster.components import Component, ComponentLoadContext, Model, Resolvable
 
-# Reuse the *real* WFS client and key convention from the production pipeline —
-# the component supplies behavior; it does not reinvent the data access.
+# Reuse the *real* WFS client, key convention, and catalog asset from the
+# production pipeline — the component supplies behavior; it does not reinvent
+# the data access, and its assets plug into the same graph (see deps below).
+from cali_geo.defs.catalog import wfs_catalog
 from cali_geo.defs.config import partition_key
 from cali_geo.defs.resources import WfsResource
 
@@ -64,6 +66,10 @@ class WfsLayerSet(Component, Model, Resolvable):
 
         @dg.asset(
             name=key,
+            # These featured layers are entries in the catalog, so we order
+            # behind wfs_catalog. A lineage/ordering dep, not a data dep — it's
+            # what plugs this YAML-declared asset into the hand-written graph.
+            deps=[wfs_catalog],
             group_name=self.group_name,
             description=spec.title or f"Live WFS probe of {spec.typename}",
             check_specs=[
