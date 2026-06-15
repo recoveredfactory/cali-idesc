@@ -53,13 +53,38 @@ export function getActiveGraduated(): [number, string][] {
 // theme's sequential ramp (light→intense = low→high) so magnitude shows. We
 // sniff ordinality from the value shape and, when found, color by rank.
 
-/** A rank function if `values` look ordinal (single A–G letters, or a leading
- *  integer like "3: Medio-bajo"), else null. */
+// Spanish magnitude ladders (low → high), accent/case-insensitive. Many Cali
+// layers classify by quality words instead of numbers — tree density
+// (Baja…Muy Alta), flood hazard (Baja/Media/Alta), noise bands, etc. Recognizing
+// them lets those layers land on the sequential ramp (light→intense) like the
+// A–F and numeric ordinals, instead of getting arbitrary qualitative hues.
+const ES_MAGNITUDE: Record<string, number> = {
+	'muy baja': 0,
+	'muy bajo': 0,
+	baja: 1,
+	bajo: 1,
+	regular: 2,
+	media: 3,
+	medio: 3,
+	moderada: 3,
+	moderado: 3,
+	alta: 4,
+	alto: 4,
+	'muy alta': 5,
+	'muy alto': 5
+};
+const esNorm = (v: string) =>
+	v.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); // strip accents
+
+/** A rank function if `values` look ordinal (single A–G letters, a leading
+ *  integer like "3: Medio-bajo", or a Spanish magnitude ladder like
+ *  "Baja…Muy Alta"), else null. */
 function ordinalRank(values: string[]): ((v: string) => number) | null {
 	const vals = values.map((v) => v.trim()).filter(Boolean);
 	if (vals.length < 2) return null;
 	if (vals.every((v) => /^[A-Ga-g]$/.test(v))) return (v) => v.trim().toUpperCase().charCodeAt(0);
 	if (vals.every((v) => /^-?\d+/.test(v.trim()))) return (v) => parseInt(v.trim(), 10);
+	if (vals.every((v) => esNorm(v) in ES_MAGNITUDE)) return (v) => ES_MAGNITUDE[esNorm(v)];
 	return null;
 }
 
