@@ -115,7 +115,9 @@ export const FEATURED: Featured[] = [
 		title_en: 'The urban forest',
 		blurb_es: 'Densidad de árboles en el área urbana, según el censo arbóreo.',
 		blurb_en: 'Tree density across the urban area, from the tree census.',
-		layers: [{ key: 'dagma__obs_arb_densidad_arborea', colorField: 'valor' }]
+		// `texto` is a 5-class ordinal (Baja…Muy Alta) — reads far better than the
+		// raw `valor` count; map.ts ranks the Spanish magnitudes onto the ramp.
+		layers: [{ key: 'dagma__obs_arb_densidad_arborea', colorField: 'texto' }]
 	},
 	{
 		id: 'ruido',
