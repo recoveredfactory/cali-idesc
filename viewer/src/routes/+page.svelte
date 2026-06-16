@@ -5,7 +5,7 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import type { Map as MLMap, MapMouseEvent } from 'maplibre-gl';
 	import { MANIFEST_URL } from '$lib/config';
-	import { createMap, tintBasemap, addCaliMask, setThemeRamps, pickFeatures } from '$lib/map';
+	import { createMap, tintBasemap, setThemeRamps, pickFeatures } from '$lib/map';
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
 	import { parseHash, restoreState, serializeState, scheduleUrlSync } from '$lib/state/url';
@@ -82,13 +82,7 @@
 
 		Promise.all([mapReady, manifestReady]).then(() => {
 			const st = parseHash(location.hash);
-			// The mask defaults ON; honor a shared link that turned it off before
-			// the first add (toggle semantics would otherwise double-flip).
-			if (st.mask === false) app.maskOn = false;
-			if (map) {
-				tintBasemap(map, app.theme);
-				if (app.maskOn) addCaliMask(map, app.theme.background);
-			}
+			if (map) tintBasemap(map, app.theme);
 			restoreState(st);
 			booted = true;
 		});
