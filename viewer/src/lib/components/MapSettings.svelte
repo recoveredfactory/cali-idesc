@@ -29,22 +29,36 @@
 	<div class="flex flex-wrap items-center gap-1.5">
 		<button
 			type="button"
-			class="h-9 rounded-lg px-3 text-sm font-semibold transition
+			class="flex h-9 items-center gap-1.5 rounded-lg pr-3 pl-2 text-sm font-semibold transition
 			       {app.dem
 				? 'bg-emerald-600 text-white shadow-sm'
 				: 'bg-slate-100 text-slate-700 hover:bg-slate-200'}"
 			title={m.dem_hint()}
 			aria-pressed={app.dem}
-			onclick={() => app.toggleDem()}>{m.dem()}</button>
+			onclick={() => app.toggleDem()}
+		>
+			<span
+				class="flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] leading-none
+				       {app.dem ? 'border-white/80 text-white' : 'border-slate-400 text-transparent'}"
+				aria-hidden="true">✓</span>
+			{m.dem()}
+		</button>
 		<button
 			type="button"
-			class="h-9 rounded-lg px-3 text-sm font-semibold transition
+			class="flex h-9 items-center gap-1.5 rounded-lg pr-3 pl-2 text-sm font-semibold transition
 			       {app.baseVisible
 				? 'bg-slate-700 text-white shadow-sm'
 				: 'bg-slate-100 text-slate-700 hover:bg-slate-200'}"
 			title={m.base_hint()}
 			aria-pressed={app.baseVisible}
-			onclick={() => app.toggleBase()}>{m.base()}</button>
+			onclick={() => app.toggleBase()}
+		>
+			<span
+				class="flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] leading-none
+				       {app.baseVisible ? 'border-white/80 text-white' : 'border-slate-400 text-transparent'}"
+				aria-hidden="true">✓</span>
+			{m.base()}
+		</button>
 
 		<div class="ml-auto flex items-center gap-1.5">
 			<span
