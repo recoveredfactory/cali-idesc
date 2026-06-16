@@ -136,15 +136,16 @@
 		<!-- Pinned bottom: one contextual catalog button, the map settings, and the
 		     footer. No mt-auto (it trapped a gap of whitespace on the mobile sheet). -->
 		{#if app.manifest}
-			<div class="shrink-0">
+			<div class="shrink-0 px-3 pt-2.5 pb-1">
 				<button
 					type="button"
-					class="mx-3 mt-2.5 mb-1 flex h-11 items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 text-sm font-semibold text-slate-600 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700"
+					class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[.99]"
 					onclick={() => (app.browserOpen = true)}
 				>
-					<span class="text-lg leading-none" aria-hidden="true">+</span>{app.activeLayers.length
-						? m.add_layers()
-						: m.browse_catalog()}
+					<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-4.5 w-4.5 shrink-0" aria-hidden="true">
+						<path d="M10 4.5v11M4.5 10h11" />
+					</svg>
+					{app.activeLayers.length ? m.add_layers() : m.browse_catalog()}
 				</button>
 				<div class="border-t border-black/5 px-4 py-3">
 					<MapSettings />
