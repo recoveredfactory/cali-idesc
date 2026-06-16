@@ -19,7 +19,7 @@
 		aria-label={m.about()}
 		onclick={() => (app.aboutOpen = true)}
 	>
-		<BrandMark textClass="text-[15px]" />
+		<BrandMark textClass="text-lg" />
 	</button>
 
 	<button
