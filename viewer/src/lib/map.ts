@@ -778,14 +778,19 @@ export function setBasemapVisible(map: maplibregl.Map, visible: boolean): void {
  *  `theme.roadOpacity`, and dim `boundaries*` (the dashed admin strokes) to
  *  `theme.boundaryOpacity`. When not subdued, restore the flavor defaults
  *  (clears each override with `undefined`). `startsWith('roads')` already covers
- *  `roads_bridges_*`. */
+ *  `roads_bridges_*`.
+ *
+ *  Casings are dimmed via `line-opacity` (0), NOT `visibility`: visibility is
+ *  owned by `setBasemapVisible` (the master Base on/off), and toggling it here
+ *  too would fight it — casings re-appeared as ghostly outlines when the whole
+ *  basemap was hidden. Opacity and visibility compose cleanly. */
 export function tuneBasemap(map: maplibregl.Map, theme: Theme, subdued: boolean): void {
 	for (const l of map.getStyle().layers ?? []) {
 		if (l.type !== 'line') continue;
 		const id = l.id;
 		if (id.startsWith('roads')) {
 			if (theme.hideRoadCasing && id.includes('casing')) {
-				map.setLayoutProperty(id, 'visibility', subdued ? 'none' : 'visible');
+				map.setPaintProperty(id, 'line-opacity', subdued ? 0 : undefined);
 			} else {
 				map.setPaintProperty(id, 'line-opacity', subdued ? theme.roadOpacity : undefined);
 			}
