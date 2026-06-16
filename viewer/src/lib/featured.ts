@@ -32,10 +32,11 @@ export const FEATURED: Featured[] = [
 		id: 'loma',
 		accent: '#3f7d4f',
 		title_es: 'Lo demás es loma',
-		title_en: 'The rest is hillside',
-		blurb_es: 'El relieve de Cali con sus curvas de nivel, del valle a los Farallones.',
-		blurb_en: "Cali's terrain with its contour lines, from the valley to the Farallones.",
-		layers: [{ key: 'pot_2014__bcs_curvas_nivel' }],
+		title_en: 'The rest is the hills',
+		blurb_es: 'El relieve sombreado de Cali, del valle a los Farallones.',
+		blurb_en: "Cali's shaded terrain, from the valley up to the Farallones.",
+		// Just the relief (hillshade), no contour lines — the loma as a backdrop.
+		layers: [],
 		relief: true,
 		camera: { center: [-76.58, 3.41], zoom: 11.6 }
 	},
