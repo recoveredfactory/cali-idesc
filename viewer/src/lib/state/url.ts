@@ -1,7 +1,7 @@
 // Shareable URL state, kept in the hash so the static host never sees it.
 // Format (all parts optional, defaults omitted):
 //   #l=<key>[~c.<field>][~x[.<field>]],<key>…   enabled layers + styling
-//   &t=<themeId>  &d=1 (relief on)  &m=0 (mask off)  &b=0 (basemap hidden)
+//   &t=<themeId>  &d=1 (relief on)  &b=0 (basemap hidden)
 //   &e=<exaggeration>  &v=<zoom>/<lat>/<lon>[/<pitch>[/<bearing>]]
 // Layer keys and field names are [a-z0-9_]+ so `~ . , & =` are safe separators.
 
@@ -16,7 +16,6 @@ export type UrlState = {
 	layers: UrlLayer[];
 	theme?: string;
 	dem?: boolean;
-	mask?: boolean;
 	base?: boolean;
 	exaggeration?: number;
 	cam?: { zoom: number; lat: number; lon: number; pitch: number; bearing: number };
@@ -48,7 +47,6 @@ export function parseHash(hash: string): UrlState {
 			}
 		} else if (k === 't') out.theme = v;
 		else if (k === 'd') out.dem = v === '1';
-		else if (k === 'm') out.mask = v === '1';
 		else if (k === 'b') out.base = v === '1';
 		else if (k === 'e') {
 			const n = parseFloat(v);
@@ -80,7 +78,6 @@ export function serializeState(map: MLMap | undefined): string {
 	}
 	if (app.themeId !== DEFAULT_THEME.id) parts.push(`t=${app.themeId}`);
 	if (app.dem) parts.push('d=1');
-	if (!app.maskOn) parts.push('m=0');
 	if (!app.baseVisible) parts.push('b=0');
 	if (app.exaggeration !== DEFAULT_EXAGGERATION) parts.push(`e=${app.exaggeration}`);
 	if (map) {
@@ -99,7 +96,6 @@ export function serializeState(map: MLMap | undefined): string {
 export function restoreState(state: UrlState): void {
 	if (!app.map) return;
 	if (state.dem === true && !app.dem) app.toggleDem();
-	if (state.mask === false && app.maskOn) app.toggleMask();
 	if (state.base === false && app.baseVisible) app.toggleBase();
 	if (state.exaggeration !== undefined) app.exaggeration = state.exaggeration;
 	for (const { key, style } of state.layers) {

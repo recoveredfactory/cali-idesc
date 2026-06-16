@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Map-wide controls: the 3D exaggeration slider (when anything is extruded —
-	// kept up top, tied to the active layers), the relief / Cali-mask / basemap
-	// toggles, and the theme swatches (the whole look moves together).
+	// kept up top, tied to the active layers), the relief / basemap toggles, and
+	// the theme swatches (the whole look moves together).
 	import { m } from '$lib/paraglide/messages';
 	import { THEMES } from '$lib/config';
 	import { app } from '$lib/state/app.svelte';
@@ -36,15 +36,6 @@
 			title={m.dem_hint()}
 			aria-pressed={app.dem}
 			onclick={() => app.toggleDem()}>{m.dem()}</button>
-		<button
-			type="button"
-			class="h-9 rounded-lg px-3 text-sm font-semibold transition
-			       {app.maskOn
-				? 'bg-emerald-600 text-white shadow-sm'
-				: 'bg-slate-100 text-slate-700 hover:bg-slate-200'}"
-			title={m.mask_hint()}
-			aria-pressed={app.maskOn}
-			onclick={() => app.toggleMask()}>{m.mask()}</button>
 		<button
 			type="button"
 			class="h-9 rounded-lg px-3 text-sm font-semibold transition

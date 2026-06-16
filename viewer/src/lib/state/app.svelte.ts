@@ -20,9 +20,6 @@ import {
 	ensureHighlight,
 	addDem,
 	removeDem,
-	addCaliMask,
-	removeCaliMask,
-	setMaskColor,
 	setBasemapVisible,
 	tuneBasemap,
 	applyTheme,
@@ -68,7 +65,6 @@ class AppState {
 
 	themeId = $state(DEFAULT_THEME.id);
 	dem = $state(false);
-	maskOn = $state(true);
 	baseVisible = $state(true);
 	exaggeration = $state(DEFAULT_EXAGGERATION);
 
@@ -294,14 +290,6 @@ class AppState {
 		tuneBasemap(this.map, this.theme, this.dem && this.baseVisible);
 	}
 
-	/** Crop the basemap to the Cali municipal boundary. */
-	toggleMask(): void {
-		if (!this.map) return;
-		this.maskOn = !this.maskOn;
-		if (this.maskOn) addCaliMask(this.map, this.theme.background);
-		else removeCaliMask(this.map);
-	}
-
 	/** Show/hide the entire Protomaps basemap (data + relief stay). */
 	toggleBase(): void {
 		if (!this.map) return;
@@ -320,9 +308,6 @@ class AppState {
 			dem: this.manifest?.dem,
 			recolorAll: () => this.recolorAll()
 		});
-		// Live (same-flavor) switches keep the mask — just repaint it. Flavor
-		// changes wipe it; `reapply` re-adds it.
-		if (this.maskOn) setMaskColor(this.map, t.background);
 	}
 
 	/** Rebuild every app-owned layer after a basemap restyle (Dark toggle). */
@@ -334,7 +319,6 @@ class AppState {
 			if (l) addLayer(this.map, l, this.optsFor(key));
 		}
 		ensureHighlight(this.map);
-		if (this.maskOn) addCaliMask(this.map, this.theme.background);
 		this.syncPitch();
 	}
 

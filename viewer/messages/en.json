@@ -35,8 +35,6 @@
 	"dem_hint": "Digital elevation model (DEM) from IDESC",
 	"base": "Base",
 	"base_hint": "Show or hide the base map",
-	"mask": "Cali",
-	"mask_hint": "Crop the base map to the Cali municipal boundary (Farallones included)",
 	"theme": "Theme",
 	"theme_hint": "Map theme: basemap, relief, and data colors move together",
 	"extrude_3d": "3D",
