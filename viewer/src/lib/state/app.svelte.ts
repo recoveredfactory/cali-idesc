@@ -16,6 +16,7 @@ import {
 	addLayer,
 	removeLayer,
 	fitToLayer,
+	fitToDem,
 	setHighlight,
 	ensureHighlight,
 	addDem,
@@ -38,6 +39,8 @@ export type LayerStyle = {
 	colorField?: string;
 	extrude?: boolean;
 	extrudeField?: string;
+	/** Override the default outline width (e.g. a subtler boundary over relief). */
+	lineWidth?: number;
 };
 
 /** The feature currently open in the inspector. */
@@ -100,7 +103,8 @@ class AppState {
 			extrude: !!s.extrude,
 			field: s.extrudeField ?? null,
 			exaggeration: this.exaggeration,
-			colorField: s.colorField ?? null
+			colorField: s.colorField ?? null,
+			lineWidth: s.lineWidth
 		};
 	}
 
@@ -114,7 +118,7 @@ class AppState {
 		// default so the layer reads as data, not a flat blob. Curated featured
 		// views and shared links pass their own (possibly empty) style and keep it.
 		if (style === undefined) style = autoStyle(l);
-		if (style && (style.colorField || style.extrude || style.extrudeField)) {
+		if (style && (style.colorField || style.extrude || style.extrudeField || style.lineWidth != null)) {
 			this.styleByKey[l.key] = {
 				...style,
 				extrude: style.extrude ?? !!style.extrudeField
@@ -187,15 +191,17 @@ class AppState {
 		if (!this.map || !this.manifest) return;
 		this.clearAll();
 		if (f.relief && !this.dem) this.toggleDem();
+		// A camera override OR `fitDem` owns the framing — don't let a layer fly.
+		const ownsCamera = !!f.camera || !!f.fitDem;
 		let first = true;
 		for (const ref of f.layers) {
 			const l = this.byKey.get(ref.key);
 			if (!l) continue;
 			this.enable(
 				l,
-				{ colorField: ref.colorField, extrudeField: ref.extrudeField },
-				// Without a camera override, fly to the FIRST layer's bbox only.
-				!f.camera && first
+				{ colorField: ref.colorField, extrudeField: ref.extrudeField, lineWidth: ref.lineWidth },
+				// Otherwise fly to the FIRST layer's bbox only.
+				!ownsCamera && first
 			);
 			first = false;
 		}
@@ -206,6 +212,8 @@ class AppState {
 				pitch: f.camera.pitch ?? (this.anyExtruded ? 55 : 0),
 				duration: 900
 			});
+		} else if (f.fitDem && this.manifest.dem) {
+			fitToDem(this.map, this.manifest.dem);
 		}
 	}
 

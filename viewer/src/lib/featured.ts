@@ -10,6 +10,8 @@ export type FeaturedLayerRef = {
 	colorField?: string;
 	/** Extrude in 3D by this numeric field. */
 	extrudeField?: string;
+	/** Override the outline width — e.g. a subtler boundary over the relief. */
+	lineWidth?: number;
 };
 
 export type Featured = {
@@ -23,6 +25,8 @@ export type Featured = {
 	layers: FeaturedLayerRef[];
 	/** Turn the DEM relief on for this view. */
 	relief?: boolean;
+	/** Frame the full hillshade extent instead of the first layer's bbox. */
+	fitDem?: boolean;
 	/** Camera override; otherwise the map fits the first layer's bbox. */
 	camera?: { center: [number, number]; zoom: number; pitch?: number };
 };
@@ -35,11 +39,13 @@ export const FEATURED: Featured[] = [
 		title_en: 'The rest is the hills',
 		blurb_es: 'El relieve sombreado de Cali, del valle a los Farallones.',
 		blurb_en: "Cali's shaded terrain, from the valley up to the Farallones.",
-		// Shaded relief (hillshade) under the comuna outlines — a layer is selected,
-		// it reads in the theme color, and (no camera override) the map fits the
-		// whole comuna extent so you see the city against the loma.
-		layers: [{ key: 'idesc__mc_comunas' }],
-		relief: true
+		// Shaded relief (hillshade) under a SUBTLE comuna outline — a layer is
+		// selected and reads in the theme color without the heavy boundary stroke
+		// dominating the relief. `fitDem` frames the whole hillshade, not just the
+		// (much smaller) urban comuna extent.
+		layers: [{ key: 'idesc__mc_comunas', lineWidth: 0.8 }],
+		relief: true,
+		fitDem: true
 	},
 	{
 		id: 'edificios-3d',
