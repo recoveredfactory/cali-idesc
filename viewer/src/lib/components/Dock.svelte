@@ -5,7 +5,9 @@
 	// "primary" block — the front door / active-layer list, the catalog button, AND
 	// the display options (relief / base / theme) — so the styling row lands within
 	// reach without scrolling; only the footer sits below the fold. Capped at 90% so
-	// a long active-layer list scrolls in place. On ≥md it's a docked panel.
+	// a long active-layer list scrolls in place. On ≥md it's a docked panel where the
+	// active-layer list scrolls and the styling row + footer stay pinned at the
+	// bottom, always visible.
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
 	import ActiveLayerCard from './ActiveLayerCard.svelte';
@@ -163,7 +165,7 @@
 				</div>
 				<div class="space-y-2 px-3">
 					{#each app.activeLayers as l (l.key)}
-						<ActiveLayerCard layer={l} {onStyleOpen} />
+						<ActiveLayerCard layer={l} {onStyleOpen} desktop={isDesktop} />
 					{/each}
 				</div>
 			{/if}
@@ -182,24 +184,37 @@
 					</button>
 				</div>
 
-				<!-- Display options: kept inside the measured block so the styling
-				     row (relief / base / theme) is visible without scrolling. -->
-				<div class="border-t border-black/5 px-4 pt-2.5 pb-3">
+				<!-- Phones: the styling row rides inside the measured block so it's
+				     visible within the open snap. Desktop pins its own copy below. -->
+				<div class="border-t border-black/5 px-4 pt-2.5 pb-3 md:hidden">
 					<MapSettings />
 				</div>
 			{/if}
 		</div>
 
-		<!-- Footer: below the fold of the `open` snap. -->
+		<!-- Phone footer: below the fold of the `open` snap. -->
 		{#if app.manifest}
 			<footer
-				class="border-t border-black/5 px-4 py-2 text-[11px] text-slate-400"
+				class="border-t border-black/5 px-4 py-2 text-[11px] text-slate-400 md:hidden"
 				style="padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px))"
 			>
 				{m.attribution()}
 			</footer>
 		{/if}
 	</div>
+
+	<!-- Desktop: the styling row + footer are pinned to the panel bottom (outside
+	     the scroll region) so they're always visible, never scrolled to. -->
+	{#if app.manifest}
+		<div class="hidden shrink-0 md:block">
+			<div class="border-t border-black/5 px-4 pt-2.5 pb-3">
+				<MapSettings />
+			</div>
+			<footer class="border-t border-black/5 px-4 py-2 text-[11px] text-slate-400">
+				{m.attribution()}
+			</footer>
+		</div>
+	{/if}
 </section>
 
 <style>
