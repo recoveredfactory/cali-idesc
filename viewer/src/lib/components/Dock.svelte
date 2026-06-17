@@ -1,12 +1,12 @@
 <script lang="ts">
-	// The main control surface. On phones it's a bottom sheet with just two states:
+	// The main control surface. On phones it's a bottom sheet with two states:
 	// `closed` (the grab handle + a one-line summary — the map is a pure navigation
-	// surface showing your selected layers) and `open` (the panel, sized to hug its
-	// content so there's no dead gap, capped so a long list scrolls instead). All or
-	// nothing: the bottom controls (catalog button + map settings + footer) are
-	// PINNED below the scrolling list, so they're fully visible when open or fully
-	// tucked behind the handle when closed — never half-clipped mid-fold. Drag the
-	// handle all the way down to close. On ≥md it's a docked left panel.
+	// surface showing your selected layers) and `open`. Open is sized to show the
+	// "primary" block — the front door / active-layer list + the catalog button —
+	// and nothing more; the display options (map settings + footer) sit just below
+	// the fold, reachable by scrolling (or by dragging the sheet taller). So tapping
+	// a curated view drops you on your layers + Add, not a wall of config. Capped at
+	// 90% so a long active-layer list scrolls in place. On ≥md it's a docked panel.
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
 	import ActiveLayerCard from './ActiveLayerCard.svelte';
@@ -23,21 +23,30 @@
 
 	const CLOSED_H = 60; // grab handle + the summary line, nothing more
 
-	// Measure the natural content height so `open` hugs it (no dead gap below the
-	// front door) yet caps at 90% so a long active-layer list scrolls in place.
-	// Measure the inner wrapper (its natural height) — NOT the flex-1 scroll box,
-	// whose scrollHeight is its stretched allocation, not the content.
-	let contentEl: HTMLElement | undefined = $state();
-	let pinnedEl: HTMLElement | undefined = $state();
+	// Measure the PRIMARY block (content + catalog button) so `open` hugs it: you
+	// land on the layers + Add, with the settings one scroll below — never a dead
+	// gap, and never the whole config in your face. Caps at 90% (then it scrolls).
+	let primaryEl: HTMLElement | undefined = $state();
+	let scrollEl: HTMLElement | undefined = $state();
 	let natH = $state(420);
+	// A ResizeObserver, not reactive deps: the active-layer legends grow the block
+	// asynchronously (field stats load after the map paints), so we must re-measure
+	// on the real size change, not just when the layer list changes.
 	$effect(() => {
-		// Re-measure whenever the content (or viewport / state) changes.
-		void app.manifest;
+		const el = primaryEl;
+		if (!el) return;
+		// 26 = grab handle (~22) + the scroll box's top padding (~4).
+		const measure = () => (natH = 26 + el.offsetHeight);
+		measure();
+		const ro = new ResizeObserver(measure);
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
+	// New layer set → start the scroll at the top so you see the layers, not a
+	// position the browser scroll-anchored to while the legends were loading in.
+	$effect(() => {
 		void app.activeLayers.length;
-		void innerH;
-		void snap;
-		// 28 = grab handle (~22) + the scroll box's top padding (~4) + a hair.
-		natH = 28 + (contentEl?.offsetHeight ?? 0) + (pinnedEl?.offsetHeight ?? 0);
+		if (scrollEl) scrollEl.scrollTop = 0;
 	});
 
 	const fullH = $derived(Math.round(innerH * 0.9));
@@ -125,9 +134,15 @@
 		{/if}
 	</button>
 
-	<!-- scrolling list: the only scroll region (front door, or the active layers) -->
-	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto pt-1 md:pt-3">
-		<div bind:this={contentEl}>
+	<!-- The one scroll region. `open` hugs the primary block (layers + Add); the
+	     map settings + footer follow below it, reached by scrolling or dragging up.
+	     overflow-anchor:none so an async legend growing below the fold can't yank
+	     the scroll position down off the layers. -->
+	<div
+		bind:this={scrollEl}
+		class="flex min-h-0 flex-1 flex-col overflow-y-auto pt-1 [overflow-anchor:none] md:pt-3"
+	>
+		<div bind:this={primaryEl}>
 			{#if !app.manifest}
 				<p class="px-4 py-4 text-sm text-slate-400">{m.loading()}</p>
 			{:else if !app.activeLayers.length}
@@ -153,26 +168,26 @@
 					{/each}
 				</div>
 			{/if}
-		</div>
-	</div>
 
-	<!-- Pinned bottom: catalog button, map settings, footer. Always fully visible
-	     when the sheet is open; hidden entirely (behind the handle) when closed. -->
-	{#if app.manifest}
-		<div bind:this={pinnedEl} class="shrink-0 border-t border-black/5">
-			<div class="px-3 pt-2.5 pb-1.5">
-				<button
-					type="button"
-					class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[.99]"
-					onclick={() => (app.browserOpen = true)}
-				>
-					<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-4.5 w-4.5 shrink-0" aria-hidden="true">
-						<path d="M10 4.5v11M4.5 10h11" />
-					</svg>
-					{app.activeLayers.length ? m.add_layers() : m.browse_catalog()}
-				</button>
-			</div>
-			<div class="px-4 pt-1 pb-3">
+			{#if app.manifest}
+				<div class="px-3 pt-2.5 pb-2.5">
+					<button
+						type="button"
+						class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[.99]"
+						onclick={() => (app.browserOpen = true)}
+					>
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-4.5 w-4.5 shrink-0" aria-hidden="true">
+							<path d="M10 4.5v11M4.5 10h11" />
+						</svg>
+						{app.activeLayers.length ? m.add_layers() : m.browse_catalog()}
+					</button>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Display options + footer: below the fold of the `open` snap. -->
+		{#if app.manifest}
+			<div class="border-t border-black/5 px-4 pt-2.5 pb-3">
 				<MapSettings />
 			</div>
 			<footer
@@ -181,8 +196,8 @@
 			>
 				{m.attribution()}
 			</footer>
-		</div>
-	{/if}
+		{/if}
+	</div>
 </section>
 
 <style>
