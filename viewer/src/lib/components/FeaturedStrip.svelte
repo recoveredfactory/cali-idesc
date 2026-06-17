@@ -16,8 +16,11 @@
 	const iconSize = 'h-7 w-7 md:h-6 md:w-6';
 </script>
 
+<!-- scroll-pl-4 matches px-4 so scroll-snap keeps the first card's left gap
+     instead of snapping it flush to the viewport edge (it otherwise scrolls past
+     the padding, landing the first card at x=0 while the label above stays inset). -->
 <div
-	class="flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 pb-1 md:grid md:grid-cols-2 md:gap-2.5 md:overflow-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+	class="flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 scroll-pl-4 pb-1 md:grid md:grid-cols-2 md:gap-2.5 md:overflow-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 >
 	<button
 		type="button"
