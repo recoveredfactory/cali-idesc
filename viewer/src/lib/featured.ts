@@ -33,21 +33,6 @@ export type Featured = {
 
 export const FEATURED: Featured[] = [
 	{
-		id: 'loma',
-		accent: '#3f7d4f',
-		title_es: 'Lo demás es loma',
-		title_en: 'The rest is the hills',
-		blurb_es: 'El relieve sombreado de Cali, del valle a los Farallones.',
-		blurb_en: "Cali's shaded terrain, from the valley up to the Farallones.",
-		// Shaded relief (hillshade) under a SUBTLE comuna outline — a layer is
-		// selected and reads in the theme color without the heavy boundary stroke
-		// dominating the relief. `fitDem` frames the whole hillshade, not just the
-		// (much smaller) urban comuna extent.
-		layers: [{ key: 'idesc__mc_comunas', lineWidth: 0.8 }],
-		relief: true,
-		fitDem: true
-	},
-	{
 		id: 'edificios-3d',
 		accent: '#64748b',
 		title_es: 'La ciudad en 3D',
@@ -55,16 +40,7 @@ export const FEATURED: Featured[] = [
 		blurb_es: 'Cada construcción de Cali, levantada según su número de pisos.',
 		blurb_en: 'Every building in Cali, raised by its number of floors.',
 		layers: [{ key: 'catastro__cat_bas_construcciones', extrudeField: 'npisos' }],
-		camera: { center: [-76.5315, 3.4516], zoom: 15.2, pitch: 55 }
-	},
-	{
-		id: 'trafico',
-		accent: '#2c7bb6',
-		title_es: '¿A qué velocidad va el tráfico?',
-		title_en: 'How fast does traffic move?',
-		blurb_es: 'Velocidad promedio en la hora pico de la mañana, vía por vía (2015).',
-		blurb_en: 'Average speed in the morning peak hour, road by road (2015).',
-		layers: [{ key: 'dapm_movilidad__mv_aiv_cv_vpm_hpm', colorField: 'vpm_hpm' }]
+		camera: { center: [-76.5315, 3.4516], zoom: 14.6, pitch: 55 }
 	},
 	{
 		id: 'congestion',
@@ -95,6 +71,30 @@ export const FEATURED: Featured[] = [
 		blurb_es: 'Cada predio coloreado por su estrato socioeconómico, de 1 (bajo) a 6 (alto).',
 		blurb_en: 'Every property colored by its socioeconomic stratum, 1 (low) to 6 (high).',
 		layers: [{ key: 'dapm__pdt_est_estrato_urbano_expansion', colorField: 'estestrato' }]
+	},
+	{
+		id: 'loma',
+		accent: '#3f7d4f',
+		title_es: 'Lo demás es loma',
+		title_en: 'The rest is the hills',
+		blurb_es: 'El relieve sombreado de Cali, del valle a los Farallones.',
+		blurb_en: "Cali's shaded terrain, from the valley up to the Farallones.",
+		// Shaded relief (hillshade) under a SUBTLE comuna outline — a layer is
+		// selected and reads in the theme color without the heavy boundary stroke
+		// dominating the relief. `fitDem` frames the whole hillshade, not just the
+		// (much smaller) urban comuna extent.
+		layers: [{ key: 'idesc__mc_comunas', lineWidth: 0.8 }],
+		relief: true,
+		fitDem: true
+	},
+	{
+		id: 'trafico',
+		accent: '#2c7bb6',
+		title_es: '¿A qué velocidad va el tráfico?',
+		title_en: 'How fast does traffic move?',
+		blurb_es: 'Velocidad promedio en la hora pico de la mañana, vía por vía (2015).',
+		blurb_en: 'Average speed in the morning peak hour, road by road (2015).',
+		layers: [{ key: 'dapm_movilidad__mv_aiv_cv_vpm_hpm', colorField: 'vpm_hpm' }]
 	},
 	{
 		id: 'crecimiento',
