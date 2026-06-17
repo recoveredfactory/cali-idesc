@@ -5,17 +5,17 @@
 @import 'tailwindcss' source(none);
 @source "..";
 
-/* Brand wordmark face: Pacifico, a heavy brush script that nods to Cali's
-   hand-painted storefront/salsa-club signage. Self-hosted (latin subset) so
+/* Brand wordmark face: Dancing Script (weight 600) — a lighter, flowing script
+   than Pacifico, still hand-lettered in feel. Self-hosted (latin subset) so
    there's no third-party runtime dependency; falls back to serif if it fails. */
 @font-face {
-	font-family: 'Pacifico';
+	font-family: 'Dancing Script';
 	font-style: normal;
-	font-weight: 400;
+	font-weight: 600;
 	font-display: swap;
-	src: url('/fonts/pacifico-latin.woff2') format('woff2');
+	src: url('/fonts/dancing-script-600-latin.woff2') format('woff2');
 }
 
 @theme {
-	--font-script: 'Pacifico', ui-serif, Georgia, cursive;
+	--font-script: 'Dancing Script', ui-serif, Georgia, cursive;
 }
