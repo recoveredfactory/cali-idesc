@@ -2,11 +2,10 @@
 	// The main control surface. On phones it's a bottom sheet with two states:
 	// `closed` (the grab handle + a one-line summary — the map is a pure navigation
 	// surface showing your selected layers) and `open`. Open is sized to show the
-	// "primary" block — the front door / active-layer list + the catalog button —
-	// and nothing more; the display options (map settings + footer) sit just below
-	// the fold, reachable by scrolling (or by dragging the sheet taller). So tapping
-	// a curated view drops you on your layers + Add, not a wall of config. Capped at
-	// 90% so a long active-layer list scrolls in place. On ≥md it's a docked panel.
+	// "primary" block — the front door / active-layer list, the catalog button, AND
+	// the display options (relief / base / theme) — so the styling row lands within
+	// reach without scrolling; only the footer sits below the fold. Capped at 90% so
+	// a long active-layer list scrolls in place. On ≥md it's a docked panel.
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
 	import ActiveLayerCard from './ActiveLayerCard.svelte';
@@ -23,9 +22,9 @@
 
 	const CLOSED_H = 60; // grab handle + the summary line, nothing more
 
-	// Measure the PRIMARY block (content + catalog button) so `open` hugs it: you
-	// land on the layers + Add, with the settings one scroll below — never a dead
-	// gap, and never the whole config in your face. Caps at 90% (then it scrolls).
+	// Measure the PRIMARY block (content + catalog button + display options) so
+	// `open` hugs it: you land on the layers + Add + the styling row, with only the
+	// footer one scroll below — never a dead gap. Caps at 90% (then it scrolls).
 	let primaryEl: HTMLElement | undefined = $state();
 	let scrollEl: HTMLElement | undefined = $state();
 	let natH = $state(420);
@@ -134,8 +133,8 @@
 		{/if}
 	</button>
 
-	<!-- The one scroll region. `open` hugs the primary block (layers + Add); the
-	     map settings + footer follow below it, reached by scrolling or dragging up.
+	<!-- The one scroll region. `open` hugs the primary block (layers + Add + the
+	     styling row); only the footer follows below it, reached by scrolling.
 	     overflow-anchor:none so an async legend growing below the fold can't yank
 	     the scroll position down off the layers. -->
 	<div
@@ -182,14 +181,17 @@
 						{app.activeLayers.length ? m.add_layers() : m.browse_catalog()}
 					</button>
 				</div>
+
+				<!-- Display options: kept inside the measured block so the styling
+				     row (relief / base / theme) is visible without scrolling. -->
+				<div class="border-t border-black/5 px-4 pt-2.5 pb-3">
+					<MapSettings />
+				</div>
 			{/if}
 		</div>
 
-		<!-- Display options + footer: below the fold of the `open` snap. -->
+		<!-- Footer: below the fold of the `open` snap. -->
 		{#if app.manifest}
-			<div class="border-t border-black/5 px-4 pt-2.5 pb-3">
-				<MapSettings />
-			</div>
 			<footer
 				class="border-t border-black/5 px-4 py-2 text-[11px] text-slate-400"
 				style="padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px))"
