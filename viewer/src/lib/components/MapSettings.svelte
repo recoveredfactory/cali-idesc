@@ -29,7 +29,7 @@
 	<div class="flex flex-wrap items-center gap-1.5">
 		<button
 			type="button"
-			class="flex h-9 items-center gap-1.5 rounded-lg pr-3 pl-2 text-sm font-semibold transition
+			class="flex h-8 items-center gap-1 rounded-lg pr-2.5 pl-1.5 text-xs font-semibold transition
 			       {app.dem
 				? 'bg-emerald-600 text-white shadow-sm'
 				: 'bg-slate-100 text-slate-700 hover:bg-slate-200'}"
@@ -38,14 +38,14 @@
 			onclick={() => app.toggleDem()}
 		>
 			<span
-				class="flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] leading-none
+				class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] leading-none
 				       {app.dem ? 'border-white/80 text-white' : 'border-slate-400 text-transparent'}"
 				aria-hidden="true">✓</span>
 			{m.dem()}
 		</button>
 		<button
 			type="button"
-			class="flex h-9 items-center gap-1.5 rounded-lg pr-3 pl-2 text-sm font-semibold transition
+			class="flex h-8 items-center gap-1 rounded-lg pr-2.5 pl-1.5 text-xs font-semibold transition
 			       {app.baseVisible
 				? 'bg-slate-700 text-white shadow-sm'
 				: 'bg-slate-100 text-slate-700 hover:bg-slate-200'}"
@@ -54,20 +54,17 @@
 			onclick={() => app.toggleBase()}
 		>
 			<span
-				class="flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] leading-none
+				class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] leading-none
 				       {app.baseVisible ? 'border-white/80 text-white' : 'border-slate-400 text-transparent'}"
 				aria-hidden="true">✓</span>
 			{m.base()}
 		</button>
 
-		<div class="ml-auto flex items-center gap-1.5">
-			<span
-				class="shrink-0 text-[10px] font-medium tracking-wide text-slate-400 uppercase"
-				title={m.theme_hint()}>{m.theme()}</span>
+		<div class="ml-auto flex items-center gap-1" title={m.theme_hint()}>
 			{#each THEMES as t (t.id)}
 				<button
 					type="button"
-					class="h-7 w-7 rounded-full border-2 transition
+					class="h-6 w-6 rounded-full border-2 transition
 					       {app.themeId === t.id
 						? 'scale-110 border-emerald-600 ring-2 ring-emerald-600/25'
 						: 'border-black/15 hover:scale-105'}"
