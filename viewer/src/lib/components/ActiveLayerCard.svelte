@@ -25,12 +25,11 @@
 	const extrudable = $derived(extrudableFields(layer).length > 0);
 	const styleable = $derived(colorable || extrudable);
 
-	// Open the style panel automatically when the layer arrived pre-styled
-	// (featured presets / shared links), so the legend is immediately visible.
+	// The style panel starts closed — even for pre-styled featured / shared-link
+	// layers. Auto-opening it (one panel per layer, each with its legend) ate the
+	// whole sheet on a phone and left no room for the map; tap the style button to
+	// reveal the color-by / 3D controls and the legend.
 	let open = $state(false);
-	$effect.pre(() => {
-		if (style.colorField || style.extrude) open = true;
-	});
 
 	const fLabel = (f: string) => fieldLabel(layer.workspace, f, locale);
 </script>
