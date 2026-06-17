@@ -5,6 +5,8 @@ import {
 	DATA_BASE,
 	CALI_CENTER,
 	CALI_ZOOM,
+	CALI_MIN_ZOOM,
+	CALI_MAX_BOUNDS,
 	HEIGHT_FIELDS,
 	METERS_PER_FLOOR,
 	ELEVATION_FIELD,
@@ -190,6 +192,8 @@ export function createMap(container: HTMLElement): maplibregl.Map {
 		style: basemapStyle(currentFlavor),
 		center: CALI_CENTER,
 		zoom: CALI_ZOOM,
+		minZoom: CALI_MIN_ZOOM,
+		maxBounds: CALI_MAX_BOUNDS,
 		attributionControl: { compact: true }
 	});
 	map.on('error', (e) => console.error('maplibre error:', (e as { error?: Error })?.error?.message ?? e));

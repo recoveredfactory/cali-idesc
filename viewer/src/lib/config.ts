@@ -9,6 +9,15 @@ export const MANIFEST_URL = `${DATA_BASE}/layers.json`;
 export const CALI_CENTER: [number, number] = [-76.53, 3.42];
 export const CALI_ZOOM = 11;
 
+// Pan/zoom leash: keep the map on Cali. The view rubber-bands back to the city +
+// the Farallones + a margin instead of wandering off to the ocean, and can't zoom
+// out past the regional scale. SW then NE corner (lon, lat).
+export const CALI_MIN_ZOOM = 10;
+export const CALI_MAX_BOUNDS: [[number, number], [number, number]] = [
+	[-77.05, 3.1],
+	[-76.05, 3.75]
+];
+
 export type Layer = {
 	key: string;
 	typename: string;
