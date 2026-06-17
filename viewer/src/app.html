@@ -11,6 +11,43 @@
 
 		<meta name="text-scale" content="scale" />
 
+		<!-- SEO + social share. This app is a client-only SPA (ssr=false), so crawlers
+		     see ONLY this static shell — these tags must live here, not in a
+		     <svelte:head>. ES-only by design. Absolute URLs point at the canonical
+		     host (cali.recoveredfactory.net, served at root). -->
+		<title>Mapas Cali — lo demás es mapa</title>
+		<meta
+			name="description"
+			content="El catálogo geográfico abierto de Santiago de Cali: más de 350 capas municipales para explorar, colorear y ver en relieve 3D."
+		/>
+		<link rel="canonical" href="https://cali.recoveredfactory.net/" />
+
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="Mapas Cali" />
+		<meta property="og:title" content="Mapas Cali — lo demás es mapa" />
+		<meta
+			property="og:description"
+			content="El catálogo geográfico abierto de Santiago de Cali: más de 350 capas municipales para explorar, colorear y ver en relieve 3D."
+		/>
+		<meta property="og:url" content="https://cali.recoveredfactory.net/" />
+		<meta property="og:image" content="https://cali.recoveredfactory.net/og.png" />
+		<meta property="og:image:type" content="image/png" />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta
+			property="og:image:alt"
+			content="El relieve de los Farallones y la malla vial de Cali sobre fondo oscuro."
+		/>
+		<meta property="og:locale" content="es_CO" />
+
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content="Mapas Cali — lo demás es mapa" />
+		<meta
+			name="twitter:description"
+			content="El catálogo geográfico abierto de Santiago de Cali: más de 350 capas municipales para explorar, colorear y ver en relieve 3D."
+		/>
+		<meta name="twitter:image" content="https://cali.recoveredfactory.net/og.png" />
+
 		<!-- Umami analytics. data-domains scopes sends to the production hosts only,
 		     so localhost/preview builds never emit. App state lives in the URL hash
 		     (not routes), so custom events — not pageviews — are the primary signal. -->
