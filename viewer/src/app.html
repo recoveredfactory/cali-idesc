@@ -10,6 +10,16 @@
 		/>
 
 		<meta name="text-scale" content="scale" />
+
+		<!-- Umami analytics. data-domains scopes sends to the production hosts only,
+		     so localhost/preview builds never emit. App state lives in the URL hash
+		     (not routes), so custom events — not pageviews — are the primary signal. -->
+		<script
+			defer
+			src="https://cloud.umami.is/script.js"
+			data-website-id="1677d6d9-1d63-466f-84f5-0a8a1560e8b7"
+			data-domains="cali.recoveredfactory.net,lo-demas-es-loma.recoveredfactory.net"
+		></script>
 		%sveltekit.head%
 	</head>
 

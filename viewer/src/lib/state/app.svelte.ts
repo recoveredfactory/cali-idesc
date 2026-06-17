@@ -33,6 +33,7 @@ import {
 } from '$lib/map';
 import type { Featured } from '$lib/featured';
 import { autoStyle } from '$lib/autostyle';
+import { track } from '$lib/analytics';
 
 /** Per-layer render style the user can change (all optional = defaults). */
 export type LayerStyle = {
@@ -80,6 +81,11 @@ class AppState {
 	aboutOpen = $state(false);
 	infoLayer = $state<Layer | null>(null);
 
+	// When true, the low-level layer/mode events (enable/disable/clear/dem/base)
+	// are suppressed so a "surprise" roll or a featured view logs ONE intent
+	// event, not the cascade of internal mutations it drives. Not reactive.
+	private suppressLayerEvents = false;
+
 	readonly theme: Theme = $derived(
 		THEMES.find((t) => t.id === this.themeId) ?? DEFAULT_THEME
 	);
@@ -114,6 +120,7 @@ class AppState {
 	enable(l: Layer, style?: LayerStyle, fly = true): void {
 		if (!this.map || l.serve === 'empty' || !l.url) return;
 		if (this.active.includes(l.key)) return;
+		if (!this.suppressLayerEvents) track('layer-enable', { key: l.key });
 		// Ad-hoc adds (browser tap, 🎲 surprise) arrive un-styled — pick a smart
 		// default so the layer reads as data, not a flat blob. Curated featured
 		// views and shared links pass their own (possibly empty) style and keep it.
@@ -138,6 +145,7 @@ class AppState {
 
 	disable(key: string): void {
 		if (!this.map) return;
+		if (!this.suppressLayerEvents && this.active.includes(key)) track('layer-disable', { key });
 		if (this.active.includes(key)) removeLayer(this.map, key);
 		this.active = this.active.filter((k) => k !== key);
 		delete this.styleByKey[key];
@@ -154,6 +162,7 @@ class AppState {
 
 	clearAll(): void {
 		if (!this.map) return;
+		if (!this.suppressLayerEvents && this.active.length) track('layers-clear');
 		for (const key of this.active) removeLayer(this.map, key);
 		this.active = [];
 		this.styleByKey = {};
@@ -180,30 +189,43 @@ class AppState {
 		const workspaces = [...byWs.keys()];
 		const group = byWs.get(workspaces[Math.floor(Math.random() * workspaces.length)])!;
 		const pick = group[Math.floor(Math.random() * group.length)];
-		if (this.randomKey && this.active.includes(this.randomKey)) this.disable(this.randomKey);
-		this.enable(pick);
+		this.suppressLayerEvents = true;
+		try {
+			if (this.randomKey && this.active.includes(this.randomKey)) this.disable(this.randomKey);
+			this.enable(pick);
+		} finally {
+			this.suppressLayerEvents = false;
+		}
 		this.randomKey = pick.key;
+		track('surprise', { key: pick.key });
 	}
 
 	/** Apply a curated featured view: replaces whatever is on the map with the
 	 *  preset layers + styling, optional relief, and its camera. */
 	applyFeatured(f: Featured): void {
 		if (!this.map || !this.manifest) return;
-		this.clearAll();
-		if (f.relief && !this.dem) this.toggleDem();
-		// A camera override OR `fitDem` owns the framing — don't let a layer fly.
-		const ownsCamera = !!f.camera || !!f.fitDem;
-		let first = true;
-		for (const ref of f.layers) {
-			const l = this.byKey.get(ref.key);
-			if (!l) continue;
-			this.enable(
-				l,
-				{ colorField: ref.colorField, extrudeField: ref.extrudeField, lineWidth: ref.lineWidth },
-				// Otherwise fly to the FIRST layer's bbox only.
-				!ownsCamera && first
-			);
-			first = false;
+		track('featured-apply', { id: f.id });
+		// One intent event, not the clearAll + toggleDem + N×enable cascade below.
+		this.suppressLayerEvents = true;
+		try {
+			this.clearAll();
+			if (f.relief && !this.dem) this.toggleDem();
+			// A camera override OR `fitDem` owns the framing — don't let a layer fly.
+			const ownsCamera = !!f.camera || !!f.fitDem;
+			let first = true;
+			for (const ref of f.layers) {
+				const l = this.byKey.get(ref.key);
+				if (!l) continue;
+				this.enable(
+					l,
+					{ colorField: ref.colorField, extrudeField: ref.extrudeField, lineWidth: ref.lineWidth },
+					// Otherwise fly to the FIRST layer's bbox only.
+					!ownsCamera && first
+				);
+				first = false;
+			}
+		} finally {
+			this.suppressLayerEvents = false;
 		}
 		if (f.camera) {
 			this.map.easeTo({
@@ -221,6 +243,7 @@ class AppState {
 
 	/** Pick (or clear, with '') the field a layer is colored by. */
 	setColorField(l: Layer, field: string): void {
+		track('color-by', { key: l.key, field: field || null });
 		const s = { ...(this.styleByKey[l.key] ?? {}) };
 		if (field) s.colorField = field;
 		else delete s.colorField;
@@ -236,6 +259,7 @@ class AppState {
 		if (!this.map || !this.active.includes(l.key)) return;
 		const s = { ...(this.styleByKey[l.key] ?? {}) };
 		s.extrude = !s.extrude;
+		track('extrude-toggle', { key: l.key, on: s.extrude });
 		if (s.extrude && !s.extrudeField) s.extrudeField = defaultExtrudeField(l) ?? undefined;
 		this.styleByKey[l.key] = s;
 		removeLayer(this.map, l.key);
@@ -293,6 +317,7 @@ class AppState {
 	toggleDem(): void {
 		if (!this.map) return;
 		this.dem = !this.dem;
+		if (!this.suppressLayerEvents) track('dem-toggle', { on: this.dem });
 		if (this.dem) addDem(this.map, this.manifest?.dem, this.theme.variant, this.theme.reliefOpacity);
 		else removeDem(this.map);
 		tuneBasemap(this.map, this.theme, this.dem && this.baseVisible);
@@ -302,12 +327,14 @@ class AppState {
 	toggleBase(): void {
 		if (!this.map) return;
 		this.baseVisible = !this.baseVisible;
+		if (!this.suppressLayerEvents) track('basemap-toggle', { on: this.baseVisible });
 		setBasemapVisible(this.map, this.baseVisible);
 		tuneBasemap(this.map, this.theme, this.dem && this.baseVisible);
 	}
 
 	pickTheme(t: Theme): void {
 		if (!this.map || t.id === this.themeId) return;
+		track('theme-pick', { theme: t.id });
 		this.themeId = t.id;
 		applyTheme(this.map, t, {
 			reapply: () => this.reapply(),
@@ -345,6 +372,7 @@ class AppState {
 	// --- inspector --------------------------------------------------------------
 
 	select(sel: Selected, feature: GeoJSON.Feature | null): void {
+		track('feature-inspect', { key: sel.key, geometry: sel.geometryType });
 		this.selected = sel;
 		if (this.map) setHighlight(this.map, feature);
 	}

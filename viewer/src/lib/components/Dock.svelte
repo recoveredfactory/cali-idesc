@@ -10,6 +10,7 @@
 	// bottom, always visible.
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
+	import { track } from '$lib/analytics';
 	import ActiveLayerCard from './ActiveLayerCard.svelte';
 	import FeaturedStrip from './FeaturedStrip.svelte';
 	import MapSettings from './MapSettings.svelte';
@@ -175,7 +176,10 @@
 					<button
 						type="button"
 						class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[.99]"
-						onclick={() => (app.browserOpen = true)}
+						onclick={() => {
+							app.browserOpen = true;
+							track('browser-open');
+						}}
 					>
 						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="h-4.5 w-4.5 shrink-0" aria-hidden="true">
 							<path d="M10 4.5v11M4.5 10h11" />
