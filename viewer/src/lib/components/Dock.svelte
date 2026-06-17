@@ -1,10 +1,12 @@
 <script lang="ts">
-	// The main control surface. On phones it's a draggable bottom sheet that
-	// snaps between three discrete stops (peek / half / full); on ≥md it's a
-	// docked left panel (auto height). Empty state = the curated front door
-	// (featured strip on phones, a grid on desktop); otherwise the active-layer
-	// manager. The catalog button + map settings stay pinned below the scrolling
-	// list so they never require a scroll to reach on desktop.
+	// The main control surface. On phones it's a bottom sheet with just two states:
+	// `closed` (the grab handle + a one-line summary — the map is a pure navigation
+	// surface showing your selected layers) and `open` (the panel, sized to hug its
+	// content so there's no dead gap, capped so a long list scrolls instead). All or
+	// nothing: the bottom controls (catalog button + map settings + footer) are
+	// PINNED below the scrolling list, so they're fully visible when open or fully
+	// tucked behind the handle when closed — never half-clipped mid-fold. Drag the
+	// handle all the way down to close. On ≥md it's a docked left panel.
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
 	import ActiveLayerCard from './ActiveLayerCard.svelte';
@@ -15,34 +17,48 @@
 	let innerW = $state(typeof window !== 'undefined' ? window.innerWidth : 1024);
 	const isDesktop = $derived(innerW >= 768);
 
-	// Discrete snap stops drive the sheet height; `dragH` holds the live pixel
-	// height only while a drag is in flight. Keeping a discrete `snap` (rather
-	// than a raw height) means a content-driven peek change — e.g. adding the
-	// first layer — just re-resolves cleanly instead of fighting the user.
-	type Snap = 'peek' | 'half' | 'full';
-	let snap = $state<Snap>('peek');
+	type Snap = 'closed' | 'open';
+	let snap = $state<Snap>('open'); // open to the front door on first load
 	let dragH = $state<number | null>(null);
 
-	// Peek shows the featured strip when empty (taller), the active header +
-	// a card or two when not.
-	const peek = $derived(app.activeLayers.length ? 188 : 236);
-	const halfH = $derived(Math.round(innerH * 0.52));
+	const CLOSED_H = 60; // grab handle + the summary line, nothing more
+
+	// Measure the natural content height so `open` hugs it (no dead gap below the
+	// front door) yet caps at 90% so a long active-layer list scrolls in place.
+	// Measure the inner wrapper (its natural height) — NOT the flex-1 scroll box,
+	// whose scrollHeight is its stretched allocation, not the content.
+	let contentEl: HTMLElement | undefined = $state();
+	let pinnedEl: HTMLElement | undefined = $state();
+	let natH = $state(420);
+	$effect(() => {
+		// Re-measure whenever the content (or viewport / state) changes.
+		void app.manifest;
+		void app.activeLayers.length;
+		void innerH;
+		void snap;
+		// 28 = grab handle (~22) + the scroll box's top padding (~4) + a hair.
+		natH = 28 + (contentEl?.offsetHeight ?? 0) + (pinnedEl?.offsetHeight ?? 0);
+	});
+
 	const fullH = $derived(Math.round(innerH * 0.9));
-	const snapH = $derived(snap === 'peek' ? peek : snap === 'half' ? halfH : fullH);
+	const openH = $derived(Math.min(natH, fullH));
+	const snapH = $derived(snap === 'closed' ? CLOSED_H : openH);
 	const sheetH = $derived(dragH ?? snapH);
-	const expanded = $derived(snap !== 'peek');
+	const expanded = $derived(snap !== 'closed');
+
+	// Closed-state summary: what's behind the handle, so it's clear it's there.
+	const summary = $derived(
+		app.activeLayers.length
+			? `${app.activeLayers.length} · ${m.active_layers()}`
+			: m.featured()
+	);
 
 	let dragStartY = 0;
 	let dragStartH = 0;
 	let dragMoved = false;
 
 	function nearestSnap(h: number): Snap {
-		const opts: [Snap, number][] = [
-			['peek', peek],
-			['half', halfH],
-			['full', fullH]
-		];
-		return opts.reduce((a, b) => (Math.abs(b[1] - h) < Math.abs(a[1] - h) ? b : a))[0];
+		return Math.abs(h - CLOSED_H) < Math.abs(h - openH) ? 'closed' : 'open';
 	}
 	function onHandleDown(e: PointerEvent) {
 		dragStartY = e.clientY;
@@ -55,25 +71,26 @@
 		if (dragH === null) return;
 		const dy = dragStartY - e.clientY;
 		if (Math.abs(dy) > 4) dragMoved = true;
-		dragH = Math.min(fullH, Math.max(peek, dragStartH + dy));
+		dragH = Math.min(fullH, Math.max(CLOSED_H, dragStartH + dy));
 	}
 	function onHandleUp() {
 		if (dragH === null) return;
-		// A tap (no real drag) toggles peek ↔ half; a drag snaps to the nearest.
-		snap = dragMoved ? nearestSnap(dragH) : snap === 'peek' ? 'half' : 'peek';
+		// A tap (no real drag) toggles; a drag snaps to the nearer of closed / open.
+		snap = dragMoved ? nearestSnap(dragH) : expanded ? 'closed' : 'open';
 		dragH = null;
 	}
 
-	/** A layer card opened its style panel by hand — lift the sheet so the
-	 *  controls are actually visible (only from the collapsed peek). */
+	/** A layer card opened its style panel by hand — open the sheet so the
+	 *  controls are actually visible (only from the collapsed state). */
 	function onStyleOpen() {
-		if (!isDesktop && snap === 'peek') snap = 'half';
+		if (!isDesktop && !expanded) snap = 'open';
 	}
 
-	// When the inspector opens on a phone it covers the screen — duck the dock.
+	// When the inspector opens on a phone it covers the screen — collapse to the
+	// handle so the map + the selected feature own the view.
 	$effect(() => {
 		if (app.selected && !isDesktop) {
-			snap = 'peek';
+			snap = 'closed';
 			dragH = null;
 		}
 	});
@@ -89,8 +106,8 @@
 	<!-- drag handle (phones only) -->
 	<button
 		type="button"
-		class="block w-full shrink-0 cursor-grab touch-none px-4 pt-2.5 pb-1 md:hidden"
-		aria-label="Resize panel"
+		class="block w-full shrink-0 cursor-grab touch-none px-4 pt-2.5 pb-1.5 md:hidden"
+		aria-label={expanded ? 'Collapse layers panel' : 'Expand layers panel'}
 		aria-expanded={expanded}
 		onpointerdown={onHandleDown}
 		onpointermove={onHandleMove}
@@ -98,25 +115,30 @@
 		onpointercancel={onHandleUp}
 	>
 		<div class="mx-auto h-1.5 w-10 rounded-full bg-slate-300"></div>
+		{#if !expanded}
+			<div class="mt-1.5 flex items-center justify-center gap-1 text-[11px] font-medium text-slate-500">
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3 text-slate-400" aria-hidden="true">
+					<path d="m4 10 4-4 4 4" />
+				</svg>
+				<span>{summary}</span>
+			</div>
+		{/if}
 	</button>
 
-	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto pt-1 md:overflow-hidden md:pt-4">
-		<!-- On desktop this is the ONLY scroll region, so the catalog button +
-		     settings pinned below it never need a scroll to reach. On mobile it must
-		     NOT shrink (shrink-0) — otherwise the featured strip collapses and spills
-		     over the pinned controls; the whole sheet scrolls instead. -->
-		<div class="flex shrink-0 flex-col md:min-h-0 md:flex-1 md:shrink md:overflow-y-auto">
+	<!-- scrolling list: the only scroll region (front door, or the active layers) -->
+	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto pt-1 md:pt-3">
+		<div bind:this={contentEl}>
 			{#if !app.manifest}
 				<p class="px-4 py-4 text-sm text-slate-400">{m.loading()}</p>
 			{:else if !app.activeLayers.length}
 				<!-- front door: nothing on the map yet -->
-				<p class="shrink-0 px-4 pb-2 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+				<p class="px-4 pb-2 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
 					{m.featured()}
 				</p>
 				<FeaturedStrip />
 			{:else}
 				<!-- active layer manager -->
-				<div class="flex shrink-0 items-center gap-2 px-4 pb-2">
+				<div class="flex items-center gap-2 px-4 pb-2">
 					<span class="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
 						{m.active_layers()} · {app.activeLayers.length}
 					</span>
@@ -125,18 +147,20 @@
 						class="ml-auto shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
 						onclick={() => app.clearAll()}>{m.clear_all()}</button>
 				</div>
-				<div class="shrink-0 space-y-2 px-3">
+				<div class="space-y-2 px-3">
 					{#each app.activeLayers as l (l.key)}
 						<ActiveLayerCard layer={l} {onStyleOpen} />
 					{/each}
 				</div>
 			{/if}
 		</div>
+	</div>
 
-		<!-- Pinned bottom: one contextual catalog button, the map settings, and the
-		     footer. No mt-auto (it trapped a gap of whitespace on the mobile sheet). -->
-		{#if app.manifest}
-			<div class="shrink-0 px-3 pt-2.5 pb-1">
+	<!-- Pinned bottom: catalog button, map settings, footer. Always fully visible
+	     when the sheet is open; hidden entirely (behind the handle) when closed. -->
+	{#if app.manifest}
+		<div bind:this={pinnedEl} class="shrink-0 border-t border-black/5">
+			<div class="px-3 pt-2.5 pb-1.5">
 				<button
 					type="button"
 					class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[.99]"
@@ -147,18 +171,18 @@
 					</svg>
 					{app.activeLayers.length ? m.add_layers() : m.browse_catalog()}
 				</button>
-				<div class="border-t border-black/5 px-4 py-3">
-					<MapSettings />
-				</div>
-				<footer
-					class="border-t border-black/5 px-4 py-2 text-[11px] text-slate-400"
-					style="padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px))"
-				>
-					{m.attribution()}
-				</footer>
 			</div>
-		{/if}
-	</div>
+			<div class="px-4 pt-1 pb-3">
+				<MapSettings />
+			</div>
+			<footer
+				class="border-t border-black/5 px-4 py-2 text-[11px] text-slate-400"
+				style="padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px))"
+			>
+				{m.attribution()}
+			</footer>
+		</div>
+	{/if}
 </section>
 
 <style>
