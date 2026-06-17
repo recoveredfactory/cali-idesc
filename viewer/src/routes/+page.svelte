@@ -104,8 +104,9 @@
 </script>
 
 <svelte:head>
+	<!-- Live, localized tab title. The canonical SEO/OG description lives in
+	     app.html (crawler-visible; this SPA isn't prerendered). -->
 	<title>Mapas Cali — {m.brand_tagline()}</title>
-	<meta name="description" content={m.about_riff()} />
 </svelte:head>
 
 <svelte:window
