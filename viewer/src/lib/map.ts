@@ -218,6 +218,8 @@ export type ExtrudeOpts = {
 	field?: string | null;
 	exaggeration?: number;
 	colorField?: string | null;
+	/** Override the computed line/outline width (e.g. a subtler boundary stroke). */
+	lineWidth?: number;
 };
 
 /** Numeric attributes a layer can extrude / scale by — the field-picker menu.
@@ -494,13 +496,15 @@ export function addLayer(map: maplibregl.Map, layer: Layer, opts: ExtrudeOpts = 
 	// Lines (and polygon outlines): color by elevation whenever `cota` exists.
 	// Boundaries get a heavy flat stroke; otherwise a numeric color field gently
 	// scales the width so magnitude reads as weight too.
-	const lineWidth = boundary
-		? BOUNDARY_LINE_WIDTH
-		: opts.colorField
-			? lineWidthExpr(layer, opts.colorField) ?? 1.4
-			: hasElevation
-				? 1.3
-				: 1.4;
+	const lineWidth =
+		opts.lineWidth ??
+		(boundary
+			? BOUNDARY_LINE_WIDTH
+			: opts.colorField
+				? lineWidthExpr(layer, opts.colorField) ?? 1.4
+				: hasElevation
+					? 1.3
+					: 1.4);
 	const lineColor = colorExpr ?? (hasElevation ? elevationColor() : color);
 	map.addLayer({
 		id: lyrId(layer.key, 'line'),
@@ -572,6 +576,23 @@ export function fitToLayer(map: maplibregl.Map, layer: Layer): void {
 			[maxLon, maxLat]
 		],
 		{ padding: 60, maxZoom: 16, duration: 600 }
+	);
+}
+
+/** Frame the full baked-relief extent. The DEM image runs past the pan leash, so
+ *  clamp to it — that's the reachable region, and it's entirely under hillshade.
+ *  (On a portrait phone the leash + minZoom floor this at the most-zoomed-out
+ *  view; on a wide screen it shows the whole valley-to-Farallones extent.) */
+export function fitToDem(map: maplibregl.Map, dem: DemRelief): void {
+	const lons = dem.coordinates.map((c) => c[0]);
+	const lats = dem.coordinates.map((c) => c[1]);
+	const [[west, south], [east, north]] = CALI_MAX_BOUNDS;
+	map.fitBounds(
+		[
+			[Math.max(Math.min(...lons), west), Math.max(Math.min(...lats), south)],
+			[Math.min(Math.max(...lons), east), Math.min(Math.max(...lats), north)]
+		],
+		{ padding: 12, duration: 900 }
 	);
 }
 
