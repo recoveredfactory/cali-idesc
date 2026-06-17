@@ -9,6 +9,7 @@
 	import type { Layer } from '$lib/config';
 	import { FEATURED } from '$lib/featured';
 	import { app } from '$lib/state/app.svelte';
+	import { track } from '$lib/analytics';
 	import { workspaceColor } from '$lib/map';
 	import { workspaceLabel } from '$lib/workspaces';
 	import { locale, titleOf, leafTitle, categoryOf, featuredTitle, featuredBlurb } from '$lib/i18n';
@@ -197,7 +198,10 @@
 												title={m.details()}
 												aria-label={m.details()}
 												aria-haspopup="dialog"
-												onclick={() => (app.infoLayer = l)}>&#9432;</button>
+												onclick={() => {
+													app.infoLayer = l;
+													track('layer-info', { key: l.key });
+												}}>&#9432;</button>
 										</li>
 									{/each}
 								</ul>

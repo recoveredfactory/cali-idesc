@@ -9,6 +9,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
 	import { parseHash, restoreState, serializeState, scheduleUrlSync } from '$lib/state/url';
+	import { setAnalyticsEnabled } from '$lib/analytics';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import Dock from '$lib/components/Dock.svelte';
 	import LayerBrowser from '$lib/components/LayerBrowser.svelte';
@@ -83,7 +84,12 @@
 		Promise.all([mapReady, manifestReady]).then(() => {
 			const st = parseHash(location.hash);
 			if (map) tintBasemap(map, app.theme);
+			// Replaying a shared link drives the same enable/theme/dem methods a user
+			// would — suppress analytics across the (synchronous) restore so it doesn't
+			// log a burst of fake actions (and so `first-action` stays the user's first).
+			setAnalyticsEnabled(false);
 			restoreState(st);
+			setAnalyticsEnabled(true);
 			booted = true;
 		});
 

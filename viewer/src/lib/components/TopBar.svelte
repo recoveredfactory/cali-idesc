@@ -5,6 +5,7 @@
 	import { setLocale, locales } from '$lib/paraglide/runtime';
 	import { locale } from '$lib/i18n';
 	import { app } from '$lib/state/app.svelte';
+	import { track } from '$lib/analytics';
 	import BrandMark from './BrandMark.svelte';
 </script>
 
@@ -17,7 +18,10 @@
 		class="pointer-events-auto flex h-11 shrink-0 items-center rounded-full bg-white/90 px-3.5 text-slate-800 shadow-lg backdrop-blur transition hover:bg-white"
 		title={m.about()}
 		aria-label={m.about()}
-		onclick={() => (app.aboutOpen = true)}
+		onclick={() => {
+			app.aboutOpen = true;
+			track('about-open');
+		}}
 	>
 		<BrandMark textClass="text-[15px] md:text-lg" />
 	</button>
@@ -25,7 +29,10 @@
 	<button
 		type="button"
 		class="pointer-events-auto flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full bg-white/90 px-4 text-left shadow-lg backdrop-blur transition hover:bg-white md:max-w-sm"
-		onclick={() => (app.browserOpen = true)}
+		onclick={() => {
+			app.browserOpen = true;
+			track('browser-open');
+		}}
 	>
 		<svg
 			viewBox="0 0 20 20"
@@ -51,7 +58,10 @@
 				type="button"
 				class="flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium uppercase transition
 				       {loc === locale ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}"
-				onclick={() => setLocale(loc)}>{loc}</button>
+				onclick={() => {
+					track('language-set', { locale: loc });
+					setLocale(loc);
+				}}>{loc}</button>
 		{/each}
 	</div>
 </div>

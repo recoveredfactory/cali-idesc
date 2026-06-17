@@ -6,6 +6,10 @@
 	import { THEMES } from '$lib/config';
 	import { app } from '$lib/state/app.svelte';
 	import { themeLabel } from '$lib/i18n';
+	import { track, debounce } from '$lib/analytics';
+
+	// The slider restyles live on every `oninput` tick; log only once it settles.
+	const trackExag = debounce((value: number) => track('exaggeration-change', { value }), 500);
 </script>
 
 <div class="space-y-2.5">
@@ -19,7 +23,10 @@
 				max="12"
 				step="0.5"
 				bind:value={app.exaggeration}
-				oninput={() => app.applyExaggeration()}
+				oninput={() => {
+					app.applyExaggeration();
+					trackExag(app.exaggeration);
+				}}
 				title={m.exaggeration_hint()}
 			/>
 			<span class="w-9 shrink-0 text-right tabular-nums">{app.exaggeration}×</span>

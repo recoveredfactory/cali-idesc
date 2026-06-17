@@ -15,6 +15,7 @@
 	import { fieldLabel } from '$lib/fields';
 	import { workspaceLabel } from '$lib/workspaces';
 	import { app } from '$lib/state/app.svelte';
+	import { track } from '$lib/analytics';
 	import { leafTitle, titleOf, locale } from '$lib/i18n';
 	import LegendBlock from './LegendBlock.svelte';
 
@@ -85,7 +86,10 @@
 			title={m.details()}
 			aria-label={m.details()}
 			aria-haspopup="dialog"
-			onclick={() => (app.infoLayer = layer)}>&#9432;</button>
+			onclick={() => {
+				app.infoLayer = layer;
+				track('layer-info', { key: layer.key });
+			}}>&#9432;</button>
 		<button
 			type="button"
 			class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"

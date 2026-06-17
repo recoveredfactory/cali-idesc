@@ -6,6 +6,7 @@
 	import { setLocale, locales } from '$lib/paraglide/runtime';
 	import { locale } from '$lib/i18n';
 	import { app } from '$lib/state/app.svelte';
+	import { track } from '$lib/analytics';
 	import BrandMark from './BrandMark.svelte';
 	import rfLogo from '$lib/assets/recovered-factory.png';
 </script>
@@ -54,7 +55,10 @@
 							type="button"
 							class="rounded-lg px-2.5 py-1 text-xs font-medium uppercase transition
 							       {loc === locale ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}"
-							onclick={() => setLocale(loc)}>{loc}</button>
+							onclick={() => {
+								track('language-set', { locale: loc });
+								setLocale(loc);
+							}}>{loc}</button>
 					{/each}
 				</div>
 				<a
