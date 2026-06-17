@@ -10,12 +10,14 @@ export const CALI_CENTER: [number, number] = [-76.53, 3.42];
 export const CALI_ZOOM = 11;
 
 // Pan/zoom leash: keep the map on Cali. The view rubber-bands back to the city +
-// the Farallones + a margin instead of wandering off to the ocean, and can't zoom
-// out past the regional scale. SW then NE corner (lon, lat).
-export const CALI_MIN_ZOOM = 10;
+// the Farallones + a margin instead of wandering off to the ocean. The lat band is
+// tall enough (and the min zoom low enough) that even a portrait phone can pull
+// back to the whole mountains-to-valley extent — maxBounds itself is what floors
+// the zoom-out on a tall screen, so the two are tuned together. SW then NE (lon,lat).
+export const CALI_MIN_ZOOM = 9;
 export const CALI_MAX_BOUNDS: [[number, number], [number, number]] = [
-	[-77.05, 3.1],
-	[-76.05, 3.75]
+	[-77.05, 3.0],
+	[-76.05, 3.9]
 ];
 
 export type Layer = {
