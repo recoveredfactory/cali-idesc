@@ -18,18 +18,25 @@
 	import { leafTitle, titleOf, locale } from '$lib/i18n';
 	import LegendBlock from './LegendBlock.svelte';
 
-	let { layer, onStyleOpen }: { layer: Layer; onStyleOpen?: () => void } = $props();
+	let {
+		layer,
+		onStyleOpen,
+		desktop = false
+	}: { layer: Layer; onStyleOpen?: () => void; desktop?: boolean } = $props();
 
 	const style = $derived(app.styleByKey[layer.key] ?? {});
 	const colorable = $derived(hasColorableFields(layer));
 	const extrudable = $derived(extrudableFields(layer).length > 0);
 	const styleable = $derived(colorable || extrudable);
 
-	// The style panel starts closed — even for pre-styled featured / shared-link
-	// layers. Auto-opening it (one panel per layer, each with its legend) ate the
-	// whole sheet on a phone and left no room for the map; tap the style button to
-	// reveal the color-by / 3D controls and the legend.
+	// Pre-styled featured / shared-link layers auto-open their style panel ON
+	// DESKTOP, where the legend is worth the room. On a phone several open panels
+	// (one per layer) ate the whole sheet and left no room for the map, so there
+	// they start closed — tap the style button to reveal the controls + legend.
 	let open = $state(false);
+	$effect.pre(() => {
+		if (desktop && (style.colorField || style.extrude)) open = true;
+	});
 
 	const fLabel = (f: string) => fieldLabel(layer.workspace, f, locale);
 </script>
