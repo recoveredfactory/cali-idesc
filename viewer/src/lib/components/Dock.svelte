@@ -109,6 +109,13 @@
 	let dragKey = $state<string | null>(null);
 	let dragOrder = $state<string[] | null>(null); // working display order during a drag
 	let cardEls: HTMLElement[] = $state([]);
+	// A swap reorders the list and `animate:flip` slides the cards over ~FLIP_MS.
+	// Measuring getBoundingClientRect() mid-slide returns transitional positions
+	// that flip-flop which card is "under" the pointer → the cards vibrate. So after
+	// each swap, lock further swaps until the slide settles, then measure at rest.
+	// (Plain lets, not reactive state.)
+	const FLIP_MS = 160;
+	let swapLockUntil = 0;
 
 	const displayLayers = $derived<Layer[]>(
 		dragOrder
@@ -130,6 +137,8 @@
 	function onDragMove(e: PointerEvent) {
 		if (!dragKey || !dragOrder) return;
 		e.preventDefault();
+		// Don't re-evaluate while the previous swap's flip is still animating.
+		if (performance.now() < swapLockUntil) return;
 		const from = dragOrder.indexOf(dragKey);
 		if (from < 0) return;
 		// The card the pointer is over (clamped to the ends when past them).
@@ -154,6 +163,7 @@
 			const next = dragOrder.slice();
 			next.splice(over, 0, next.splice(from, 1)[0]);
 			dragOrder = next;
+			swapLockUntil = performance.now() + FLIP_MS + 40; // let this slide finish first
 		}
 	}
 
