@@ -5,7 +5,7 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import type { Map as MLMap, MapMouseEvent } from 'maplibre-gl';
 	import { MANIFEST_URL } from '$lib/config';
-	import { createMap, tintBasemap, setThemeRamps, pickFeatures } from '$lib/map';
+	import { createMap, tintBasemap, setThemeRamps, pickFeatures, setUiPadding } from '$lib/map';
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
 	import { parseHash, restoreState, serializeState, scheduleUrlSync } from '$lib/state/url';
@@ -21,6 +21,25 @@
 	// URL writes start only after the initial hash has been restored, so the
 	// boot sequence can't clobber a shared link.
 	let booted = $state(false);
+	// ...and the hash stays empty until the user's FIRST real interaction (a manual
+	// map pan/zoom, or any layer/style/theme change). A fresh visit keeps a clean
+	// `/` instead of immediately growing a `#v=…` nobody asked to share. Every write
+	// then uses history.replaceState (see scheduleUrlSync), so it never piles up
+	// back-button entries. `baseline` is the restored/initial state we must NOT write
+	// back; `interacted` latches true on the first genuine change. Plain (non-$state)
+	// so the write $effect doesn't subscribe to them.
+	let interacted = false;
+	let baseline: string | null = null;
+
+	// Viewport size → map padding so framing + the pan leash clear the dock (a left
+	// panel on desktop, a bottom sheet on phones). Without this the city frames
+	// half-under the dock and the maxBounds leash can pin it there.
+	let innerW = $state(typeof window !== 'undefined' ? window.innerWidth : 1024);
+	let innerH = $state(typeof window !== 'undefined' ? window.innerHeight : 800);
+	const dockPadding = (w: number, h: number) =>
+		w >= 768
+			? { top: 24, right: 24, bottom: 24, left: 432 } // left dock ≈ 400 + 16 margin + gap
+			: { top: 64, right: 16, bottom: Math.min(Math.round(h * 0.42), 320), left: 16 }; // bottom sheet
 
 	function onMapClick(e: MapMouseEvent) {
 		const map = app.map;
@@ -59,6 +78,8 @@
 		}
 		app.map = map;
 		if (import.meta.env.DEV) (window as unknown as { __map: MLMap | undefined }).__map = map;
+		// Reserve the dock footprint before the first fit (incl. shared-link restore).
+		if (map) setUiPadding(map, dockPadding(innerW, innerH));
 
 		map?.on('click', onMapClick);
 		map?.on('mousemove', (e) => {
@@ -67,8 +88,12 @@
 		// Once panning/zooming/tiling settles, refresh colored-layer stats so the
 		// legends reflect whatever features are now loaded.
 		map?.on('idle', () => app.refreshAllStats());
-		map?.on('moveend', () => {
-			if (booted) scheduleUrlSync(serializeState(map));
+		map?.on('moveend', (e) => {
+			if (!booted) return;
+			// originalEvent present = a user gesture (drag/zoom/wheel); a programmatic
+			// fly/jump has none, so the initial framing can't dirty a clean URL.
+			if (e.originalEvent) interacted = true;
+			if (interacted) scheduleUrlSync(serializeState(map));
 		});
 
 		const mapReady = new Promise<void>((resolve) =>
@@ -99,7 +124,21 @@
 	// Any state change (layers, styling, theme, modes) refreshes the share URL.
 	$effect(() => {
 		const hash = serializeState(app.map);
-		if (booted) scheduleUrlSync(hash);
+		if (!booted) return;
+		// First post-boot run records the restored/initial state without writing it,
+		// so a fresh visit stays at `/` and a shared link isn't rewritten.
+		if (baseline === null) {
+			baseline = hash;
+			return;
+		}
+		if (hash !== baseline) interacted = true;
+		if (interacted) scheduleUrlSync(hash);
+	});
+
+	// Re-apply dock-aware padding on viewport resize (and once the map is ready).
+	$effect(() => {
+		void booted;
+		if (app.map) setUiPadding(app.map, dockPadding(innerW, innerH));
 	});
 </script>
 
@@ -110,6 +149,8 @@
 </svelte:head>
 
 <svelte:window
+	bind:innerWidth={innerW}
+	bind:innerHeight={innerH}
 	onkeydown={(e) => {
 		if (e.key !== 'Escape') return;
 		if (app.infoLayer) app.infoLayer = null;
