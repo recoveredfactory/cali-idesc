@@ -15,7 +15,7 @@ const satIdx = argv.indexOf('--sat'); // override relief raster-saturation
 const SAT = satIdx >= 0 ? Number(argv[satIdx + 1]) : null;
 const conIdx = argv.indexOf('--contrast'); // override relief raster-contrast
 const CON = conIdx >= 0 ? Number(argv[conIdx + 1]) : null;
-const drop = new Set([camIdx + 1, satIdx + 1, conIdx + 1]);
+const drop = new Set([camIdx, satIdx, conIdx].filter((i) => i >= 0).map((i) => i + 1));
 const rest = argv.filter((a, i) => !['--clean', '--cam', '--sat', '--contrast'].includes(a) && !drop.has(i));
 const [URL, OUT, W = '1280', H = '900'] = rest;
 if (!URL || !OUT) {

@@ -187,31 +187,6 @@ export const THEMES: Theme[] = [
 		}
 	},
 	{
-		id: 'topo',
-		label_es: 'Topográfico',
-		label_en: 'Topo',
-		flavor: 'light',
-		variant: 'topo',
-		// Cool counterpoint to the warm sepia base + brown relief — teal → deep
-		// indigo. Cool data separates cleanly from the warm terrain.
-		graduatedRamp: [
-			[0, '#86e0d0'], [0.25, '#37b0bd'], [0.5, '#2a82b8'], [0.75, '#2b53a0'], [1, '#27286b']
-		],
-		categoricalPalette: CATEGORICAL_PALETTE,
-		background: '#efe7d6',
-		reliefOpacity: 0.85,
-		roadOpacity: 0.35,
-		hideRoadCasing: true,
-		boundaryOpacity: 0.5,
-		basemap: {
-			earth: '#efe7d6',
-			water: '#b6cdd2',
-			green: '#d9cfa6',
-			labelHalo: '#ffffff',
-			labelHaloWidth: 1.8
-		}
-	},
-	{
 		id: 'slate',
 		label_es: 'Pizarra',
 		label_en: 'Slate',

@@ -772,13 +772,11 @@ function reliefBeforeId(map: maplibregl.Map): string | undefined {
 
 const DEM_SRC = '__dem-src';
 const DEM_LYR = '__dem';
-// Render-time punch for the baked relief. The valley floor bakes near the page
-// background (so it dissolves into the surround), which left the hillshade reading
-// a little flat/light. A positive raster-contrast pulls the mountains down for
-// more depth and a touch of saturation keeps the tint from going grey — both
-// applied live (no re-bake). Tune here.
-const RELIEF_CONTRAST = 0.35;
-const RELIEF_SATURATION = 0.15;
+// Render-time punch for the baked relief. The real-DEM bake carries its own
+// hillshade depth + muted tint, so we leave saturation alone (a positive value
+// pushed the greens toward neon) and add only a gentle contrast bump. Tune here.
+const RELIEF_CONTRAST = 0.3;
+const RELIEF_SATURATION = 0;
 
 /** Resolve a relief variant's served URL: the requested id, else the default. */
 function demVariantUrl(dem: DemRelief, variantId?: string): string | undefined {

@@ -36,17 +36,25 @@ CACHE = Path(f"/tmp/cali_relief_elev_{WIDTH}.npy")
 # hillshade BRIGHTENING lit faces (green * >1 -> lime). Now `shade` is DARKEN-ONLY
 # depth: lit faces show the true (deep, muted) ramp colour, shadows just go darker.
 # Greens are muted/forest, not lime. Modest contrast.
-# Round 4 (David picked OLIVE): "a bit softer / paler / more muted, a little faster
-# gradient into the base layer colour." PALE_OLIVE = lighter, lower-chroma olive
-# whose low end sits near the warm base; `fade` steepened so the relief dissolves
-# into the basemap faster. Showing two fade speeds (150 vs 100) to pick.
-PALE_OLIVE = [(900, 220, 218, 200), (1050, 176, 178, 148), (1500, 132, 146, 110),
-              (2200, 96, 120, 88), (3000, 66, 92, 66), (4200, 46, 70, 52)]
+# Round 6 — house style locked (olive-pale-soft: shade 0.38, fade 150). Drop topo.
+# David: slate relief was too dark + dark relief too light -> SWAP the lightness
+# ("like what we had before"): slate = LIGHT pale-medium blue on the pale base;
+# oscuro = DEEP navy on black. Same hillshade for all (no per-theme relight needed).
+#   original (default) = soft pale OLIVE       (bg #f0ebda)
+#   slate  = light, BLUER pale-medium blue     (bg #eef2f6)
+#   oscuro = deep navy mountains on black      (bg #000)
+OLIVE = [(900, 220, 218, 200), (1050, 176, 178, 148), (1500, 132, 146, 110),
+         (2200, 96, 120, 88), (3000, 66, 92, 66), (4200, 46, 70, 52)]
+SLATE = [(900, 226, 233, 241), (1050, 192, 210, 230), (1500, 156, 184, 216),
+         (2200, 120, 156, 202), (3000, 92, 132, 188), (4200, 70, 110, 172)]
+# desaturated deep slate (was too blue) — only a hint of cool, stays dark on #000
+OSCURO = [(900, 46, 49, 55), (1050, 55, 59, 66), (1500, 68, 73, 82),
+          (2200, 85, 92, 102), (3000, 104, 112, 124), (4200, 124, 134, 148)]
 
 VARIANTS = [
-    {"name": "olive-pale",      "ramp": PALE_OLIVE, "warmth": 0.0, "shade": 0.45, "fade": 150},
-    {"name": "olive-pale-fast", "ramp": PALE_OLIVE, "warmth": 0.0, "shade": 0.45, "fade": 100},
-    {"name": "olive-pale-soft", "ramp": PALE_OLIVE, "warmth": 0.0, "shade": 0.38, "fade": 150},
+    {"name": "original", "ramp": OLIVE,  "warmth": 0.0, "shade": 0.38, "fade": 150},
+    {"name": "slate",    "ramp": SLATE,  "warmth": 0.0, "shade": 0.40, "fade": 150},
+    {"name": "oscuro",   "ramp": OSCURO, "warmth": 0.0, "shade": 0.50, "fade": 150},
 ]
 GOLD = np.array([34, 12, -26], np.float32)  # +R +G -B additive nudge toward gold
 
