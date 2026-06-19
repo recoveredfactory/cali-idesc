@@ -74,13 +74,30 @@ def convert(src: Path, dst: Path) -> None:
     )
 
 
-def to_pmtiles(src: Path, dst: Path, layer: str, extra_args: list[str] | None = None) -> None:
+def to_pmtiles(
+    src: Path,
+    dst: Path,
+    layer: str,
+    extra_args: list[str] | None = None,
+    densest: str = "drop",
+) -> None:
     """Tile a WGS84 GeoJSON into a single-layer PMTiles archive.
 
     ``extra_args`` are inserted before the input path — e.g. an
     ``--order-descending-by=<field>`` so the densest-as-needed thinning keeps
     the most important features (tall buildings) as you zoom out.
+
+    ``densest`` picks how over-budget tiles are thinned at low/medium zoom:
+    ``"drop"`` (default) drops the densest features — fine for points and
+    sparse layers; ``"coalesce"`` instead *merges* the densest features into
+    their neighbours, which keeps a dense polygon choropleth continuous (no
+    holes) as you zoom out. Pair ``"coalesce"`` with an ``--order-by=<field>``
+    in ``extra_args`` so same-value neighbours merge, not arbitrary ones.
     """
+    strategy = {
+        "drop": "--drop-densest-as-needed",
+        "coalesce": "--coalesce-densest-as-needed",
+    }[densest]
     dst.parent.mkdir(parents=True, exist_ok=True)
     _run(
         [
@@ -89,7 +106,7 @@ def to_pmtiles(src: Path, dst: Path, layer: str, extra_args: list[str] | None = 
             str(dst),
             "--force",
             "-zg",  # auto-choose max zoom
-            "--drop-densest-as-needed",
+            strategy,
             "--extend-zooms-if-still-dropping",
             *(extra_args or []),
             "-l",
