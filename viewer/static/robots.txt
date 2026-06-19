@@ -1,3 +1,25 @@
 # allow crawling everything by default
 User-agent: *
 Disallow:
+
+# Social link-preview / Open Graph crawlers, explicitly allowlisted. The
+# catch-all above already permits them — this is belt-and-suspenders so card
+# unfurlers are never ambiguously blocked, and it directly answers the Facebook
+# Sharing Debugger's "allowlist facebookexternalhit" hint.
+User-agent: facebookexternalhit
+Allow: /
+
+User-agent: meta-externalagent
+Allow: /
+
+User-agent: Twitterbot
+Allow: /
+
+User-agent: LinkedInBot
+Allow: /
+
+User-agent: Slackbot-LinkExpanding
+Allow: /
+
+User-agent: WhatsApp
+Allow: /
