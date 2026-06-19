@@ -180,14 +180,34 @@ def layer_pmtiles(context: AssetExecutionContext, layer_geojson: dict) -> dict:
         serve, url, pmtiles_bytes = "empty", None, 0
     elif fc > PMTILES_FEATURE_THRESHOLD or nbytes > PMTILES_BYTES_THRESHOLD:
         dst = Paths.pmtiles / f"{key}.pmtiles"
+        fields = frag.get("fields") or []
+        extra: list[str] | None = None
+        densest = "drop"
         # Buildings (a layer carrying floor counts) thin too fast zoomed out, and
         # the dropped ones should be the SHORT buildings so landmarks persist.
         # Order tallest-first (densest-as-needed then keeps them) and give each
         # tile a bigger byte budget so it thins less aggressively.
-        extra = None
-        if "npisos" in (frag.get("fields") or []):
+        if "npisos" in fields:
             extra = ["--order-descending-by=npisos", "--maximum-tile-bytes=1000000"]
-        to_pmtiles(Paths.geojson / f"{key}.geojson", dst, layer=key, extra_args=extra)
+        else:
+            # Strata is a dense per-property choropleth (~700k predios). Dropping
+            # the densest features leaves holes across whole neighbourhoods when
+            # zoomed out. Instead COALESCE the densest features into neighbours so
+            # the choropleth stays continuous; ordering by the stratum makes the
+            # merges join same-value lots (clean blocks at city scale), and a
+            # bigger tile budget keeps more individual lots before merging. Full
+            # per-lot detail returns at high zoom.
+            stratum = next((f for f in ("estestrato", "erestrato") if f in fields), None)
+            if stratum:
+                densest = "coalesce"
+                extra = [f"--order-by={stratum}", "--maximum-tile-bytes=2500000"]
+        to_pmtiles(
+            Paths.geojson / f"{key}.geojson",
+            dst,
+            layer=key,
+            extra_args=extra,
+            densest=densest,
+        )
         serve = "pmtiles"
         url = f"pmtiles/{key}.pmtiles"
         pmtiles_bytes = dst.stat().st_size
