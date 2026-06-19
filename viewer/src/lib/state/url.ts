@@ -1,6 +1,6 @@
 // Shareable URL state, kept in the hash so the static host never sees it.
 // Format (all parts optional, defaults omitted):
-//   #l=<key>[~c.<field>][~x[.<field>]],<key>…   enabled layers + styling
+//   #l=<key>[~c.<field>][~x[.<field>]][~w.<n>],<key>…   enabled layers + styling
 //   &t=<themeId>  &d=1 (relief on)  &b=0 (basemap hidden)
 //   &e=<exaggeration>  &v=<zoom>/<lat>/<lon>[/<pitch>[/<bearing>]]
 // Layer keys and field names are [a-z0-9_]+ so `~ . , & =` are safe separators.
@@ -41,6 +41,9 @@ export function parseHash(hash: string): UrlState {
 					else if (mod.startsWith('x.')) {
 						style.extrude = true;
 						style.extrudeField = mod.slice(2);
+					} else if (mod.startsWith('w.')) {
+						const n = parseFloat(mod.slice(2));
+						if (Number.isFinite(n)) style.lineWidth = n;
 					}
 				}
 				out.layers.push({ key, style });
@@ -72,6 +75,7 @@ export function serializeState(map: MLMap | undefined): string {
 			let e = key;
 			if (s.colorField) e += `~c.${s.colorField}`;
 			if (s.extrude) e += s.extrudeField ? `~x.${s.extrudeField}` : '~x';
+			if (s.lineWidth != null) e += `~w.${s.lineWidth}`;
 			return e;
 		});
 		parts.push(`l=${entries.join(',')}`);

@@ -33,6 +33,8 @@ export type AnalyticsEvents = {
 	'color-by': { key: Str; field: Str | null };
 	'extrude-toggle': { key: Str; on: boolean };
 	'exaggeration-change': { value: number };
+	'line-width': { key: Str; width: number };
+	'layer-reorder': { key: Str };
 	// --- view / 3D ---
 	'dem-toggle': { on: boolean };
 	'basemap-toggle': { on: boolean };

@@ -14,6 +14,8 @@
 	import ActiveLayerCard from './ActiveLayerCard.svelte';
 	import FeaturedStrip from './FeaturedStrip.svelte';
 	import MapSettings from './MapSettings.svelte';
+	import { flip } from 'svelte/animate';
+	import type { Layer } from '$lib/config';
 
 	let innerH = $state(typeof window !== 'undefined' ? window.innerHeight : 800);
 	let innerW = $state(typeof window !== 'undefined' ? window.innerWidth : 1024);
@@ -97,6 +99,84 @@
 		if (!isDesktop && !expanded) snap = 'open';
 	}
 
+	// --- active-layer drag reordering ----------------------------------------
+	// The list is shown TOP = top-of-map (the standard layers-panel convention),
+	// so it renders `app.active` (draw order, bottom→top) reversed. Dragging a
+	// grip swaps cards as the pointer crosses each card's box; `animate:flip`
+	// slides them. On drop we commit the new order to the app (which restacks the
+	// map z-order and persists to the URL). Window listeners (not pointer capture)
+	// let the move logic see every card, regardless of which one started the drag.
+	let dragKey = $state<string | null>(null);
+	let dragOrder = $state<string[] | null>(null); // working display order during a drag
+	let cardEls: HTMLElement[] = $state([]);
+
+	const displayLayers = $derived<Layer[]>(
+		dragOrder
+			? dragOrder.map((k) => app.byKey.get(k)).filter((l): l is Layer => !!l)
+			: [...app.activeLayers].reverse()
+	);
+
+	function startDrag(e: PointerEvent, key: string) {
+		if (displayLayers.length < 2) return;
+		e.preventDefault();
+		e.stopPropagation();
+		dragKey = key;
+		dragOrder = displayLayers.map((l) => l.key);
+		window.addEventListener('pointermove', onDragMove);
+		window.addEventListener('pointerup', endDrag);
+		window.addEventListener('pointercancel', endDrag);
+	}
+
+	function onDragMove(e: PointerEvent) {
+		if (!dragKey || !dragOrder) return;
+		e.preventDefault();
+		const from = dragOrder.indexOf(dragKey);
+		if (from < 0) return;
+		// The card the pointer is over (clamped to the ends when past them).
+		let over = -1;
+		const n = displayLayers.length;
+		for (let i = 0; i < n; i++) {
+			const r = cardEls[i]?.getBoundingClientRect();
+			if (r && e.clientY >= r.top && e.clientY <= r.bottom) {
+				over = i;
+				break;
+			}
+		}
+		if (over < 0) {
+			const firstR = cardEls[0]?.getBoundingClientRect();
+			const lastR = cardEls[n - 1]?.getBoundingClientRect();
+			if (firstR && e.clientY < firstR.top) over = 0;
+			else if (lastR && e.clientY > lastR.bottom) over = n - 1;
+		}
+		// Move `from` to the slot the pointer is over. Splicing the item out then
+		// in at `over` lands it correctly with no off-by-one (see splice semantics).
+		if (over >= 0 && over !== from) {
+			const next = dragOrder.slice();
+			next.splice(over, 0, next.splice(from, 1)[0]);
+			dragOrder = next;
+		}
+	}
+
+	function endDrag() {
+		window.removeEventListener('pointermove', onDragMove);
+		window.removeEventListener('pointerup', endDrag);
+		window.removeEventListener('pointercancel', endDrag);
+		if (dragKey && dragOrder) {
+			// Display order (top→bottom) → draw order (bottom→top).
+			app.setOrder([...dragOrder].reverse());
+			track('layer-reorder', { key: dragKey });
+		}
+		dragKey = null;
+		dragOrder = null;
+	}
+
+	// Defensive: drop any window listeners if we unmount mid-drag.
+	$effect(() => () => {
+		window.removeEventListener('pointermove', onDragMove);
+		window.removeEventListener('pointerup', endDrag);
+		window.removeEventListener('pointercancel', endDrag);
+	});
+
 	// When the inspector opens on a phone it covers the screen — collapse to the
 	// handle so the map + the selected feature own the view.
 	$effect(() => {
@@ -164,9 +244,18 @@
 						class="ml-auto shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
 						onclick={() => app.clearAll()}>{m.clear_all()}</button>
 				</div>
-				<div class="space-y-2 px-3">
-					{#each app.activeLayers as l (l.key)}
-						<ActiveLayerCard layer={l} {onStyleOpen} desktop={isDesktop} />
+				<div class="space-y-2 px-3" class:select-none={!!dragKey}>
+					{#each displayLayers as l, i (l.key)}
+						<div bind:this={cardEls[i]} animate:flip={{ duration: 160 }}>
+							<ActiveLayerCard
+								layer={l}
+								{onStyleOpen}
+								desktop={isDesktop}
+								showGrip={displayLayers.length > 1}
+								dragging={l.key === dragKey}
+								onGripDown={(e) => startDrag(e, l.key)}
+							/>
+						</div>
 					{/each}
 				</div>
 			{/if}

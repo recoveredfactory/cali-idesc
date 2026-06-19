@@ -352,7 +352,12 @@ function lineWidthExpr(layer: Layer, field: string): unknown | null {
  *  and the line outline; reverting restores the elevation line color on contour
  *  layers. A numeric color field also gently scales line width (see
  *  `lineWidthExpr`); reverting restores the flat width. */
-export function setLayerColor(map: maplibregl.Map, layer: Layer, field: string | null): void {
+export function setLayerColor(
+	map: maplibregl.Map,
+	layer: Layer,
+	field: string | null,
+	widthOverride?: number
+): void {
 	const expr = field ? colorByExpr(layer, field) : null;
 	const base = workspaceColor(layer.workspace);
 	const hasElevation = (layer.fields ?? []).includes(ELEVATION_FIELD);
@@ -366,11 +371,27 @@ export function setLayerColor(map: maplibregl.Map, layer: Layer, field: string |
 	if (map.getLayer(circle)) map.setPaintProperty(circle, 'circle-color', (expr ?? base) as never);
 	if (map.getLayer(line)) {
 		map.setPaintProperty(line, 'line-color', (expr ?? (hasElevation ? elevationColor() : base)) as never);
-		const lw = isBoundaryLayer(layer)
-			? BOUNDARY_LINE_WIDTH
-			: (field ? lineWidthExpr(layer, field) : null) ?? 1.4;
+		// A user width override wins; otherwise boundary > data-driven > default.
+		const lw =
+			widthOverride ??
+			(isBoundaryLayer(layer)
+				? BOUNDARY_LINE_WIDTH
+				: (field ? lineWidthExpr(layer, field) : null) ?? 1.4);
 		map.setPaintProperty(line, 'line-width', lw as never);
 	}
+}
+
+/** The line/outline width a layer renders at with no user override (mirrors the
+ *  scalar defaults in `addLayer`) — used to seed the width slider. */
+export function defaultLineWidth(layer: Layer): number {
+	return isBoundaryLayer(layer) ? BOUNDARY_LINE_WIDTH : 1.4;
+}
+
+/** Live-set a layer's line / polygon-outline width (px). Overrides the boundary,
+ *  data-driven, and default widths until cleared by a re-add. */
+export function setLineWidth(map: maplibregl.Map, layer: Layer, width: number): void {
+	const line = lyrId(layer.key, 'line');
+	if (map.getLayer(line)) map.setPaintProperty(line, 'line-width', width as never);
 }
 
 /** Numeric histogram or category breakdown for a colored layer, computed from
@@ -647,6 +668,21 @@ export function setHighlight(map: maplibregl.Map, feature: GeoJSON.Feature | nul
 			: []
 	});
 	// Keep the highlight above any data layers added after it.
+	for (const id of HIGHLIGHT_LAYERS) if (map.getLayer(id)) map.moveLayer(id);
+}
+
+/** Re-stack the app's data layers to match `keys` (in bottom→top draw order),
+ *  keeping the highlight layers on top. Each app layer is up to three MapLibre
+ *  sublayers (fill/line/circle); `moveLayer(id)` with no `before` sends a layer
+ *  to the very top, so iterating `keys` in order leaves the last key on top. The
+ *  basemap + relief sit below all `lyr:` layers and aren't touched. */
+export function restackLayers(map: maplibregl.Map, keys: string[]): void {
+	for (const key of keys) {
+		for (const suffix of ['fill', 'line', 'circle']) {
+			const id = lyrId(key, suffix);
+			if (map.getLayer(id)) map.moveLayer(id);
+		}
+	}
 	for (const id of HIGHLIGHT_LAYERS) if (map.getLayer(id)) map.moveLayer(id);
 }
 
