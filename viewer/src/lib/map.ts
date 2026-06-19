@@ -588,6 +588,34 @@ export function removeLayer(map: maplibregl.Map, key: string): void {
 	if (map.getSource(srcId(key))) map.removeSource(srcId(key));
 }
 
+// --- UI padding (keep framing clear of the dock / top bar) -------------------
+// A fixed dock overlays the map (left panel on desktop, bottom sheet on phones).
+// Without compensation, fitBounds/easeTo center content in the FULL viewport, so
+// the city sits half-under the dock and the maxBounds leash can rubber-band it
+// there ("stuck under the nav pane"). We hold the dock's footprint as MapLibre
+// transform padding: it shifts the optical center into the visible area AND is
+// honored by the maxBounds constraint, so the city both frames and pans in the
+// open space. Set by the UI on mount + resize via `setUiPadding`.
+type Pad = { top: number; right: number; bottom: number; left: number };
+let uiPadding: Pad = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/** Reserve the dock / top-bar footprint so all framing + the pan leash clear it. */
+export function setUiPadding(map: maplibregl.Map, pad: Pad): void {
+	uiPadding = pad;
+	map.setPadding(pad);
+}
+
+/** `uiPadding` plus a uniform margin — for fitBounds, which takes its own padding
+ *  option and does NOT inherit the transform padding. */
+function fitPadding(margin: number): Pad {
+	return {
+		top: uiPadding.top + margin,
+		right: uiPadding.right + margin,
+		bottom: uiPadding.bottom + margin,
+		left: uiPadding.left + margin
+	};
+}
+
 export function fitToLayer(map: maplibregl.Map, layer: Layer): void {
 	if (!layer.bbox) return;
 	const [minLon, minLat, maxLon, maxLat] = layer.bbox;
@@ -596,7 +624,7 @@ export function fitToLayer(map: maplibregl.Map, layer: Layer): void {
 			[minLon, minLat],
 			[maxLon, maxLat]
 		],
-		{ padding: 60, maxZoom: 16, duration: 600 }
+		{ padding: fitPadding(48), maxZoom: 16, duration: 600 }
 	);
 }
 
@@ -613,7 +641,7 @@ export function fitToDem(map: maplibregl.Map, dem: DemRelief): void {
 			[Math.max(Math.min(...lons), west), Math.max(Math.min(...lats), south)],
 			[Math.min(Math.max(...lons), east), Math.min(Math.max(...lats), north)]
 		],
-		{ padding: 12, duration: 900 }
+		{ padding: fitPadding(12), duration: 900 }
 	);
 }
 
