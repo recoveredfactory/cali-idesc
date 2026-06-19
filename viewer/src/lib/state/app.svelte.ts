@@ -27,6 +27,8 @@ import {
 	defaultExtrudeField,
 	restyleExtrusion,
 	setLayerColor,
+	setLineWidth as mapSetLineWidth,
+	restackLayers,
 	computeFieldStats,
 	type ExtrudeOpts,
 	type FieldStats
@@ -249,9 +251,26 @@ class AppState {
 		else delete s.colorField;
 		this.styleByKey[l.key] = s;
 		if (this.map && this.active.includes(l.key)) {
-			setLayerColor(this.map, l, field || null);
+			// Pass any manual width override so recoloring doesn't clobber it.
+			setLayerColor(this.map, l, field || null, s.lineWidth);
 			this.refreshStats(l);
 		}
+	}
+
+	/** Set a layer's line / polygon-outline width (px); stored per-layer and
+	 *  applied live. Overrides the boundary / data-driven / default widths and
+	 *  survives extrude re-adds + theme reapplies via `optsFor`. */
+	setLineWidth(l: Layer, width: number): void {
+		const w = Math.round(width * 10) / 10;
+		this.styleByKey[l.key] = { ...(this.styleByKey[l.key] ?? {}), lineWidth: w };
+		if (this.map && this.active.includes(l.key)) mapSetLineWidth(this.map, l, w);
+	}
+
+	/** Replace the active draw order (bottom→top) and restack the map z-order to
+	 *  match. The `serializeState` URL effect persists the new order for free. */
+	setOrder(keys: string[]): void {
+		this.active = keys;
+		if (this.map) restackLayers(this.map, keys);
 	}
 
 	/** Toggle 3D extrusion (changes the fill layer type → re-add the layer). */

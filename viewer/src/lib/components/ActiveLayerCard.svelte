@@ -10,7 +10,8 @@
 		colorableFields,
 		hasColorableFields,
 		extrudableFields,
-		defaultExtrudeField
+		defaultExtrudeField,
+		defaultLineWidth
 	} from '$lib/map';
 	import { fieldLabel } from '$lib/fields';
 	import { workspaceLabel } from '$lib/workspaces';
@@ -22,13 +23,29 @@
 	let {
 		layer,
 		onStyleOpen,
-		desktop = false
-	}: { layer: Layer; onStyleOpen?: () => void; desktop?: boolean } = $props();
+		desktop = false,
+		showGrip = false,
+		dragging = false,
+		onGripDown
+	}: {
+		layer: Layer;
+		onStyleOpen?: () => void;
+		desktop?: boolean;
+		/** Show the drag-reorder grip (only when more than one layer is active). */
+		showGrip?: boolean;
+		/** This card is the one currently being dragged. */
+		dragging?: boolean;
+		/** Pointer-down on the grip — the dock owns the reorder gesture. */
+		onGripDown?: (e: PointerEvent) => void;
+	} = $props();
 
 	const style = $derived(app.styleByKey[layer.key] ?? {});
 	const colorable = $derived(hasColorableFields(layer));
 	const extrudable = $derived(extrudableFields(layer).length > 0);
-	const styleable = $derived(colorable || extrudable);
+	// Layers that draw a line/outline (lines + polygons; unknown geometries draw
+	// both) can have their stroke width tuned. Pure point layers can't.
+	const lineable = $derived(/line|polygon|unknown/.test((layer.geometry_type ?? '').toLowerCase()));
+	const styleable = $derived(colorable || extrudable || lineable);
 
 	// Pre-styled featured / shared-link layers auto-open their style panel ON
 	// DESKTOP, where the legend is worth the room. On a phone several open panels
@@ -36,14 +53,32 @@
 	// they start closed — tap the style button to reveal the controls + legend.
 	let open = $state(false);
 	$effect.pre(() => {
-		if (desktop && (style.colorField || style.extrude)) open = true;
+		if (desktop && (style.colorField || style.extrude || style.lineWidth != null)) open = true;
 	});
 
 	const fLabel = (f: string) => fieldLabel(layer.workspace, f, locale);
 </script>
 
-<div class="overflow-hidden rounded-xl border border-black/5 bg-white shadow-sm">
-	<div class="flex items-center gap-2 py-1.5 pr-1.5 pl-3">
+<div
+	class="overflow-hidden rounded-xl border bg-white shadow-sm transition
+	       {dragging ? 'border-emerald-300 shadow-lg ring-2 ring-emerald-200' : 'border-black/5'}"
+>
+	<div class="flex items-center gap-2 py-1.5 pr-1.5 {showGrip ? 'pl-1' : 'pl-3'}">
+		{#if showGrip}
+			<button
+				type="button"
+				class="flex h-8 w-5 shrink-0 cursor-grab touch-none items-center justify-center text-slate-300 transition hover:text-slate-500 active:cursor-grabbing"
+				title={m.reorder_layer()}
+				aria-label={m.reorder_layer()}
+				onpointerdown={onGripDown}
+			>
+				<svg viewBox="0 0 16 16" fill="currentColor" class="h-4 w-4" aria-hidden="true">
+					<circle cx="6" cy="3" r="1.3" /><circle cx="10" cy="3" r="1.3" />
+					<circle cx="6" cy="8" r="1.3" /><circle cx="10" cy="8" r="1.3" />
+					<circle cx="6" cy="13" r="1.3" /><circle cx="10" cy="13" r="1.3" />
+				</svg>
+			</button>
+		{/if}
 		<span
 			class="h-2.5 w-2.5 shrink-0 rounded-full {layer.key === app.randomKey ? 'ring-2 ring-violet-300' : ''}"
 			style="background:{workspaceColor(layer.workspace)}"
@@ -153,6 +188,25 @@
 						</select>
 					{/if}
 				</div>
+			{/if}
+			{#if lineable}
+				<label class="flex items-center gap-2">
+					<span class="shrink-0 text-[11px] font-medium text-slate-500">{m.line_width()}</span>
+					<input
+						type="range"
+						class="h-8 min-w-0 flex-1 accent-emerald-600"
+						min="0"
+						max="8"
+						step="0.2"
+						title={m.line_width_hint()}
+						value={style.lineWidth ?? defaultLineWidth(layer)}
+						oninput={(e) => app.setLineWidth(layer, +e.currentTarget.value)}
+						onchange={(e) => track('line-width', { key: layer.key, width: +e.currentTarget.value })}
+					/>
+					<span class="w-7 shrink-0 text-right text-[11px] tabular-nums text-slate-400"
+						>{(style.lineWidth ?? defaultLineWidth(layer)).toFixed(1)}</span
+					>
+				</label>
 			{/if}
 		</div>
 	{/if}
