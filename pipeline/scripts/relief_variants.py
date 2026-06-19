@@ -30,18 +30,23 @@ CACHE = Path(f"/tmp/cali_relief_elev_{WIDTH}.npy")
 # --- variant LOOKS to compare -----------------------------------------------
 # ramp: (elev_m, R, G, B) keyed on real metres (valley ~950m -> Farallones ~4000m)
 # warmth: 0..1 golden bias applied only to west-LIT faces.
-CLEAN = [(850, 240, 235, 218), (1050, 196, 210, 168), (1500, 138, 180, 116),
-         (2200, 84, 150, 92), (3000, 46, 112, 68), (4200, 28, 84, 54)]
-# fuller: greener/more-saturated valley, carried lower (less cream dissolve)
-FULLER = [(850, 205, 222, 176), (1050, 168, 205, 146), (1500, 116, 178, 108),
-          (2200, 70, 148, 86), (3000, 38, 110, 64), (4200, 22, 82, 50)]
+# shade: per-variant west-light strength (more = deeper darks / more form).
+#
+# Round 3 (David: "too neon; doesn't need HIGHER contrast"). The neon came from the
+# hillshade BRIGHTENING lit faces (green * >1 -> lime). Now `shade` is DARKEN-ONLY
+# depth: lit faces show the true (deep, muted) ramp colour, shadows just go darker.
+# Greens are muted/forest, not lime. Modest contrast.
+# Round 4 (David picked OLIVE): "a bit softer / paler / more muted, a little faster
+# gradient into the base layer colour." PALE_OLIVE = lighter, lower-chroma olive
+# whose low end sits near the warm base; `fade` steepened so the relief dissolves
+# into the basemap faster. Showing two fade speeds (150 vs 100) to pick.
+PALE_OLIVE = [(900, 220, 218, 200), (1050, 176, 178, 148), (1500, 132, 146, 110),
+              (2200, 96, 120, 88), (3000, 66, 92, 66), (4200, 46, 70, 52)]
 
 VARIANTS = [
-    {"name": "clean",       "ramp": CLEAN,  "warmth": 0.0},   # == REALDEM
-    {"name": "warm-soft",   "ramp": CLEAN,  "warmth": 0.30},
-    {"name": "warm-gold",   "ramp": CLEAN,  "warmth": 0.55},
-    {"name": "fuller",      "ramp": FULLER, "warmth": 0.0},
-    {"name": "fuller-warm", "ramp": FULLER, "warmth": 0.30},
+    {"name": "olive-pale",      "ramp": PALE_OLIVE, "warmth": 0.0, "shade": 0.45, "fade": 150},
+    {"name": "olive-pale-fast", "ramp": PALE_OLIVE, "warmth": 0.0, "shade": 0.45, "fade": 100},
+    {"name": "olive-pale-soft", "ramp": PALE_OLIVE, "warmth": 0.0, "shade": 0.38, "fade": 150},
 ]
 GOLD = np.array([34, 12, -26], np.float32)  # +R +G -B additive nudge toward gold
 
@@ -102,12 +107,12 @@ def load_elev():
     return elev
 
 
-def coverage_alpha(elev):
+def coverage_alpha(elev, valley=1015.0, fade=230.0):
     """Alpha keyed on elevation-above-valley so the flat valley/city dissolves to
     transparent (basemap shows through, no bbox rectangle) and the mountains read
-    opaque. A border feather guarantees no hard cut where terrain meets the bbox."""
-    VALLEY, FADE = 1015.0, 230.0          # transparent <=1015m, opaque >=1245m
-    a = np.clip((elev - VALLEY) / FADE, 0, 1) ** 0.85
+    opaque. Smaller `fade` = FASTER gradient into the base layer. A border feather
+    guarantees no hard cut where terrain meets the bbox."""
+    a = np.clip((elev - valley) / fade, 0, 1) ** 0.85
     H, W = elev.shape
     fr = 0.04                              # feather the outer 4% of each edge
     ex = np.clip(np.minimum(np.arange(W), W - 1 - np.arange(W)) / (fr * W), 0, 1)
@@ -126,16 +131,18 @@ def hillshade(elev):
     return np.clip(hs, 0, 1)
 
 
-def bake(elev, hs, alpha, spec):
+def bake(elev, hs, spec):
     ev = np.array([s[0] for s in spec["ramp"]], np.float32)
     tint = np.stack([np.interp(elev, ev, np.array([s[i] for s in spec["ramp"]], np.float32))
                      for i in (1, 2, 3)], -1)
-    f = ((1 - SHADE/2) + SHADE*hs)[..., None]      # lighter west / darker-green east
+    sh = spec.get("shade", SHADE)
+    f = (1 - sh*(1 - hs))[..., None]               # DARKEN-only: lit=true colour, east faces darker
     out = tint * f
     if spec["warmth"] > 0:                          # gold only on lit faces
         lit = np.clip((hs - 0.5) * 2, 0, 1)[..., None]
         out = out + spec["warmth"] * lit * GOLD
     out = np.clip(out, 0, 255)
+    alpha = coverage_alpha(elev, spec.get("valley", 1015.0), spec.get("fade", 230.0))
     img = np.dstack([out, alpha]).astype(np.uint8)
     path = OUT_DIR / f"dem_{spec['name']}.png"
     Image.fromarray(img, "RGBA").save(path)
@@ -145,8 +152,7 @@ def bake(elev, hs, alpha, spec):
 elev = load_elev()
 H = elev.shape[0]
 hs = hillshade(elev)
-alpha = coverage_alpha(elev)
 print(f"grid {WIDTH}x{H}  elev {elev.min():.0f}..{elev.max():.0f}m  variants: {len(VARIANTS)}")
 for spec in VARIANTS:
-    p = bake(elev, hs, alpha, spec)
-    print(f"  baked {spec['name']:12s} warmth={spec['warmth']} -> {p}")
+    p = bake(elev, hs, spec)
+    print(f"  baked {spec['name']:16s} shade={spec.get('shade')} fade={spec.get('fade', 230)} -> {p}")

@@ -11,7 +11,12 @@ const argv = process.argv.slice(2);
 const CLEAN = argv.includes('--clean');
 const camIdx = argv.indexOf('--cam'); // --cam <zoom,lat,lon>
 const CAM = camIdx >= 0 ? argv[camIdx + 1].split(',').map(Number) : null; // [zoom,lat,lon]
-const rest = argv.filter((a, i) => a !== '--clean' && a !== '--cam' && i !== camIdx + 1);
+const satIdx = argv.indexOf('--sat'); // override relief raster-saturation
+const SAT = satIdx >= 0 ? Number(argv[satIdx + 1]) : null;
+const conIdx = argv.indexOf('--contrast'); // override relief raster-contrast
+const CON = conIdx >= 0 ? Number(argv[conIdx + 1]) : null;
+const drop = new Set([camIdx + 1, satIdx + 1, conIdx + 1]);
+const rest = argv.filter((a, i) => !['--clean', '--cam', '--sat', '--contrast'].includes(a) && !drop.has(i));
 const [URL, OUT, W = '1280', H = '900'] = rest;
 if (!URL || !OUT) {
 	console.error('usage: shot.mjs <url> <outPath> [width height] [--clean] [--cam zoom,lat,lon]');
@@ -102,6 +107,14 @@ try {
 			}
 		})()`);
 		await sleep(900);
+	}
+	if (SAT !== null || CON !== null) {
+		// Tune the relief raster's render-time punch live (layer id '__dem').
+		await evalJs(ws, `(() => { const m = window.__map; if (!m || !m.getLayer('__dem')) return;
+			${SAT !== null ? `m.setPaintProperty('__dem','raster-saturation', ${SAT});` : ''}
+			${CON !== null ? `m.setPaintProperty('__dem','raster-contrast', ${CON});` : ''}
+		})()`);
+		await sleep(500);
 	}
 	await sleep(1200); // let the relief raster paint
 
