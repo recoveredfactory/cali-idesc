@@ -41,6 +41,9 @@ aws s3 sync "$DATA/geojson/" "$DST/geojson/" \
   --content-type "application/json" --cache-control "public, max-age=86400"
 aws s3 sync "$DATA/dem/" "$DST/dem/" --exclude "*" --include "*.png" \
   --content-type "image/png" --cache-control "public, max-age=86400"
+# dem.json (relief placement + variants) — small metadata, keep it fresh.
+aws s3 cp "$DATA/dem/dem.json" "$DST/dem/dem.json" \
+  --content-type "application/json" --cache-control "no-cache"
 
 # Invalidate so a refreshed layers.json / data serves immediately.
 echo "==> invalidating CloudFront"

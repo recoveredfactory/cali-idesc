@@ -14,10 +14,12 @@ export const CALI_ZOOM = 11;
 // tall enough (and the min zoom low enough) that even a portrait phone can pull
 // back to the whole mountains-to-valley extent — maxBounds itself is what floors
 // the zoom-out on a tall screen, so the two are tuned together. SW then NE (lon,lat).
-export const CALI_MIN_ZOOM = 9;
+// Bounds opened up toward the baked DEM extent (-77.2..-76.0, 2.9..4.0) so you can
+// pull back a bit further and take in more of both cordilleras.
+export const CALI_MIN_ZOOM = 8.5;
 export const CALI_MAX_BOUNDS: [[number, number], [number, number]] = [
-	[-77.05, 3.0],
-	[-76.05, 3.9]
+	[-77.13, 2.96],
+	[-76.0, 3.97]
 ];
 
 export type Layer = {
@@ -182,31 +184,6 @@ export const THEMES: Theme[] = [
 			earth: '#f0ebda',
 			water: '#a7c9d4',
 			green: '#c8d79c',
-			labelHalo: '#ffffff',
-			labelHaloWidth: 1.8
-		}
-	},
-	{
-		id: 'topo',
-		label_es: 'Topográfico',
-		label_en: 'Topo',
-		flavor: 'light',
-		variant: 'topo',
-		// Cool counterpoint to the warm sepia base + brown relief — teal → deep
-		// indigo. Cool data separates cleanly from the warm terrain.
-		graduatedRamp: [
-			[0, '#86e0d0'], [0.25, '#37b0bd'], [0.5, '#2a82b8'], [0.75, '#2b53a0'], [1, '#27286b']
-		],
-		categoricalPalette: CATEGORICAL_PALETTE,
-		background: '#efe7d6',
-		reliefOpacity: 0.85,
-		roadOpacity: 0.35,
-		hideRoadCasing: true,
-		boundaryOpacity: 0.5,
-		basemap: {
-			earth: '#efe7d6',
-			water: '#b6cdd2',
-			green: '#d9cfa6',
 			labelHalo: '#ffffff',
 			labelHaloWidth: 1.8
 		}
