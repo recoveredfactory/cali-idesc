@@ -35,6 +35,8 @@
 	"dem_hint": "Modelo de elevación digital (DEM) del IDESC",
 	"base": "Base",
 	"base_hint": "Mostrar u ocultar el mapa base",
+	"reset_view": "Centrar",
+	"reset_view_hint": "Volver a centrar el mapa en Cali",
 	"theme_hint": "Tema del mapa: base, relieve y colores de datos cambian juntos",
 	"extrude_3d": "3D",
 	"extrude_hint": "Extruir esta capa según un campo numérico",

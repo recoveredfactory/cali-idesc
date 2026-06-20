@@ -168,11 +168,12 @@ export const THEMES: Theme[] = [
 		label_en: 'Original',
 		flavor: 'light',
 		variant: 'original',
-		// Warm "Cali heat" sequential — saturated amber → deep wine, monotonic
-		// in lightness so mid-values separate. Pops on cream and over the green
-		// loma where the old green→tan ramp read as green-on-green.
+		// Muted "Cali clay" sequential — dusty wheat → terracotta → deep wine-brown,
+		// monotonic in lightness so mid-values separate. Lower chroma than the old
+		// saturated amber→red heat ramp (which read garish on the cream base); still
+		// warm so it reads over the olive loma rather than green-on-green.
 		graduatedRamp: [
-			[0, '#ffd24a'], [0.25, '#f7a23b'], [0.5, '#ea5f33'], [0.75, '#c0392b'], [1, '#7c1f3d']
+			[0, '#e9cf9e'], [0.25, '#d9a771'], [0.5, '#c47a52'], [0.75, '#a4503f'], [1, '#6f2f3a']
 		],
 		categoricalPalette: CATEGORICAL_PALETTE,
 		background: '#f0ebda',
