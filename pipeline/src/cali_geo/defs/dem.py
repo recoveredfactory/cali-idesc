@@ -24,6 +24,7 @@ valley). For each theme:
    MB at this resolution).
 """
 
+import hashlib
 import json
 import math
 import shutil
@@ -245,11 +246,14 @@ def build_dem_relief() -> dict:
             )
         finally:
             raw.unlink(missing_ok=True)
+        # Content hash in the URL busts BROWSER cache when the bake changes
+        # (dem.json is served no-cache; each versioned PNG can still cache a day).
+        ver = hashlib.sha256(out.read_bytes()).hexdigest()[:8]
         variants.append({
             "id": spec["id"],
             "label_es": spec["label_es"],
             "label_en": spec["label_en"],
-            "url": f"dem/dem_{spec['id']}.png",
+            "url": f"dem/dem_{spec['id']}.png?v={ver}",
         })
 
     # MapLibre `image` source corner order: TL, TR, BR, BL (lon/lat). The image is
