@@ -778,6 +778,29 @@ const DEM_LYR = '__dem';
 const RELIEF_CONTRAST = 0.3;
 const RELIEF_SATURATION = 0;
 
+// The relief pyramid is crisp only up to its native ceiling; past that MapLibre
+// upscales the top tiles into blur. Relief is a *context* layer ("Cali sits in a
+// valley between two cordilleras") — it reads best zoomed out, and at street zoom
+// the blur just sits over the streets. So fade it out as you drill in: full
+// strength up to the ceiling, gone ~2.5 levels above. Tie the curve to the ceiling
+// so the hi-res re-bake (z13 -> z14) shifts the fade automatically.
+const RELIEF_SHARP_MAXZOOM = 13;
+/** Zoom-interpolated relief opacity: scales a theme's base by the fade curve. */
+function reliefOpacityExpr(base: number): maplibregl.ExpressionSpecification {
+	const z = RELIEF_SHARP_MAXZOOM;
+	return [
+		'interpolate',
+		['linear'],
+		['zoom'],
+		z,
+		base,
+		z + 1,
+		base * 0.45,
+		z + 2.5,
+		0
+	];
+}
+
 /** Resolve a relief variant's served URL: the requested id, else the default. */
 function demVariantUrl(dem: DemRelief, variantId?: string): string | undefined {
 	const exact = dem.variants.find((x) => x.id === variantId);
@@ -828,7 +851,7 @@ export function addDem(
 				type: 'raster',
 				source: DEM_SRC,
 				paint: {
-					'raster-opacity': opacity,
+					'raster-opacity': reliefOpacityExpr(opacity),
 					'raster-contrast': RELIEF_CONTRAST,
 					'raster-saturation': RELIEF_SATURATION
 				}
@@ -859,9 +882,12 @@ export function removeDem(map: maplibregl.Map): void {
 	if (map.getSource(DEM_SRC)) map.removeSource(DEM_SRC);
 }
 
-/** Set the relief raster opacity in place (themes use different values). */
+/** Set the relief raster opacity in place (themes use different values). The
+ *  value is a zoom-interpolated expression so relief fades out past its crisp
+ *  ceiling — see `reliefOpacityExpr`. */
 export function setReliefOpacity(map: maplibregl.Map, opacity: number): void {
-	if (map.getLayer(DEM_LYR)) map.setPaintProperty(DEM_LYR, 'raster-opacity', opacity);
+	if (map.getLayer(DEM_LYR))
+		map.setPaintProperty(DEM_LYR, 'raster-opacity', reliefOpacityExpr(opacity));
 }
 
 // --- Basemap (Protomaps) visibility + road prominence -----------------------
