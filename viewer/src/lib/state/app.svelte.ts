@@ -71,6 +71,8 @@ class AppState {
 
 	themeId = $state(DEFAULT_THEME.id);
 	dem = $state(false);
+	/** True while the (large) baked relief image is fetching — drives a spinner. */
+	reliefLoading = $state(false);
 	baseVisible = $state(true);
 	exaggeration = $state(DEFAULT_EXAGGERATION);
 

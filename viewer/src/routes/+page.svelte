@@ -5,7 +5,14 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import type { Map as MLMap, MapMouseEvent } from 'maplibre-gl';
 	import { MANIFEST_URL } from '$lib/config';
-	import { createMap, tintBasemap, setThemeRamps, pickFeatures, setUiPadding } from '$lib/map';
+	import {
+		createMap,
+		tintBasemap,
+		setThemeRamps,
+		pickFeatures,
+		setUiPadding,
+		watchReliefLoading
+	} from '$lib/map';
 	import { m } from '$lib/paraglide/messages';
 	import { app } from '$lib/state/app.svelte';
 	import { parseHash, restoreState, serializeState, scheduleUrlSync } from '$lib/state/url';
@@ -80,6 +87,8 @@
 		if (import.meta.env.DEV) (window as unknown as { __map: MLMap | undefined }).__map = map;
 		// Reserve the dock footprint before the first fit (incl. shared-link restore).
 		if (map) setUiPadding(map, dockPadding(innerW, innerH));
+		// Spinner while the large baked relief image fetches (toggle on / theme swap).
+		if (map) watchReliefLoading(map, (loading) => (app.reliefLoading = loading));
 
 		map?.on('click', onMapClick);
 		map?.on('mousemove', (e) => {
@@ -163,6 +172,13 @@
 <div class="shell" style="--page-bg:{app.theme.background}">
 	<div bind:this={mapEl} class="map"></div>
 
+	{#if app.reliefLoading}
+		<div class="relief-loading" role="status" aria-live="polite">
+			<span class="spinner" aria-hidden="true"></span>
+			{m.loading()}
+		</div>
+	{/if}
+
 	<TopBar />
 	<Dock />
 	<Inspector />
@@ -192,5 +208,43 @@
 		position: absolute;
 		inset: 0;
 		background: var(--page-bg, #efe9dd);
+	}
+
+	/* Relief-loading pill: centered near the top, clear of the dock + search bar. */
+	.relief-loading {
+		position: absolute;
+		top: 70px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 20;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 14px;
+		border-radius: 9999px;
+		background: rgba(255, 255, 255, 0.95);
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+		font-size: 13px;
+		font-weight: 500;
+		color: #334155;
+		pointer-events: none;
+	}
+	.spinner {
+		width: 14px;
+		height: 14px;
+		border: 2px solid #cbd5e1;
+		border-top-color: #475569;
+		border-radius: 50%;
+		animation: relief-spin 0.7s linear infinite;
+	}
+	@keyframes relief-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.spinner {
+			animation-duration: 2s;
+		}
 	}
 </style>

@@ -14,10 +14,12 @@ export const CALI_ZOOM = 11;
 // tall enough (and the min zoom low enough) that even a portrait phone can pull
 // back to the whole mountains-to-valley extent — maxBounds itself is what floors
 // the zoom-out on a tall screen, so the two are tuned together. SW then NE (lon,lat).
-export const CALI_MIN_ZOOM = 9;
+// Bounds opened up toward the baked DEM extent (-77.2..-76.0, 2.9..4.0) so you can
+// pull back a bit further and take in more of both cordilleras.
+export const CALI_MIN_ZOOM = 8.5;
 export const CALI_MAX_BOUNDS: [[number, number], [number, number]] = [
-	[-77.05, 3.0],
-	[-76.05, 3.9]
+	[-77.13, 2.96],
+	[-76.0, 3.97]
 ];
 
 export type Layer = {
