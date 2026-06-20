@@ -782,8 +782,13 @@ const RELIEF_SATURATION = 0;
 // upscales the top tiles into blur. Relief is a *context* layer ("Cali sits in a
 // valley between two cordilleras") — it reads best zoomed out, and at street zoom
 // the blur just sits over the streets. So fade it out as you drill in: full
-// strength up to the ceiling, gone ~2.5 levels above. Tie the curve to the ceiling
-// so the hi-res re-bake (z13 -> z14) shifts the fade automatically.
+// strength up to the ceiling, gone ~2.5 levels above.
+//
+// The pyramid tops out at z14, but its tiles are 256px, so MapLibre's covering
+// zoom is mapZoom+1 — i.e. it serves z14 tiles 1:1 only up to mapZoom 13 and
+// overzooms (softens) above that. So the *crisp* ceiling is 13, not 14. The z14
+// re-bake's payoff is that the whole full-opacity context band (<=13) is now
+// pixel-crisp on every device (the old z13 pyramid went soft a level earlier).
 const RELIEF_SHARP_MAXZOOM = 13;
 /** Zoom-interpolated relief opacity: scales a theme's base by the fade curve. */
 function reliefOpacityExpr(base: number): maplibregl.ExpressionSpecification {
