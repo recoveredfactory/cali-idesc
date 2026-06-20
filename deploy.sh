@@ -39,8 +39,9 @@ aws s3 sync "$DATA/pmtiles/" "$DST/pmtiles/" \
   --content-type "application/octet-stream" --cache-control "public, max-age=86400"
 aws s3 sync "$DATA/geojson/" "$DST/geojson/" \
   --content-type "application/json" --cache-control "public, max-age=86400"
-aws s3 sync "$DATA/dem/" "$DST/dem/" --exclude "*" --include "*.png" \
-  --content-type "image/png" --cache-control "public, max-age=86400"
+# Relief is raster PMTiles (one per theme), range-served like the basemap.
+aws s3 sync "$DATA/dem/" "$DST/dem/" --exclude "*" --include "*.pmtiles" \
+  --content-type "application/octet-stream" --cache-control "public, max-age=86400"
 # dem.json (relief placement + variants) — small metadata, keep it fresh.
 aws s3 cp "$DATA/dem/dem.json" "$DST/dem/dem.json" \
   --content-type "application/json" --cache-control "no-cache"

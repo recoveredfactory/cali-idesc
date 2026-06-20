@@ -27,7 +27,7 @@ valley). For each theme:
 import hashlib
 import json
 import math
-import shutil
+import sqlite3
 import subprocess
 import tempfile
 import urllib.request
@@ -39,19 +39,17 @@ import dagster as dg
 import numpy as np
 from dagster import AssetExecutionContext
 from PIL import Image
+from pmtiles.convert import mbtiles_to_pmtiles
 
 from .config import CALI_BBOX, Paths
 
-# We RENDER the relief internally at ~z13-native resolution, then supersample the
-# finished image DOWN to OUTPUT_WIDTH with LANCZOS — cleaner than sampling the DEM
-# straight to the output grid. OUTPUT_WIDTH is the served PNG width and the real
-# file-size knob: the z13 terrain detail is high-entropy, so PNG compression can't
-# shrink it much — resolution is what controls weight. 8000px ≈ 22 MB/theme — the
-# crisp/print-quality option (David chose higher-rez over the lighter 5000px).
+# Relief is rendered at this width, then sliced into a raster PMTiles pyramid (one
+# per theme), range-served like the basemap. TILED (not a single image) so it stays
+# sharp at every zoom on every device and lazy-loads on mobile — a single image is
+# one GPU texture, capped at ~4096px on phones, so it blurred when zoomed in. 8000px
+# over the bbox ≈ the z13 terrarium native resolution (the relief's detail ceiling).
 RENDER_WIDTH = 8000
-OUTPUT_WIDTH = 8000
-# Terrarium zoom to fetch. z13 ≈ 19 m/px at this latitude — feeds the render grid
-# with real detail (supersampled into the output). z12 would be soft.
+# Terrarium zoom to fetch (≈19 m/px at this latitude) = the relief's detail ceiling.
 DEM_Z = 13
 # Shared WEST light (gentle): the look David signed off on.
 HS_AZ, HS_ALT, HS_ZFACTOR = 295.0, 42.0, 1.6
@@ -198,27 +196,51 @@ def _coverage_alpha(elev: np.ndarray) -> np.ndarray:
     return a * edge * 255.0
 
 
+def _run(cmd: list[str]) -> None:
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        tail = "\n".join((proc.stderr or proc.stdout).strip().splitlines()[-8:])
+        raise RuntimeError(f"command failed: {' '.join(cmd[:2])} ...\n{tail}")
+
+
+def _tile_to_pmtiles(img: Image.Image, out_pmtiles: Path, ullr: tuple) -> int:
+    """Slice a colored RGBA relief image into a raster PMTiles pyramid.
+
+    Georeferences it in EPSG:3857 over the bbox, builds an MBTiles + overviews
+    (the lower zooms), then converts to PMTiles. Returns the max zoom level.
+    Needs the GDAL CLI (gdal_translate, gdaladdo) on PATH.
+    """
+    ulx, uly, lrx, lry = ullr
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        png, tif, mb = tmp / "r.png", tmp / "r.tif", tmp / "r.mbtiles"
+        img.save(png)  # full-quality RGBA — tiles are the deliverable, no quantizing
+        _run(["gdal_translate", "-q", "-a_srs", "EPSG:3857",
+              "-a_ullr", str(ulx), str(uly), str(lrx), str(lry), str(png), str(tif)])
+        _run(["gdal_translate", "-q", "-of", "MBTILES", "-co", "TILE_FORMAT=PNG", str(tif), str(mb)])
+        _run(["gdaladdo", "-q", "-r", "average", str(mb), "2", "4", "8", "16", "32"])
+        con = sqlite3.connect(mb)
+        maxzoom = int(con.execute("SELECT value FROM metadata WHERE name='maxzoom'").fetchone()[0])
+        con.close()
+        out_pmtiles.unlink(missing_ok=True)
+        mbtiles_to_pmtiles(str(mb), str(out_pmtiles), maxzoom)
+    return maxzoom
+
+
 def build_dem_relief() -> dict:
-    """Bake every theme's relief into ``data/dem/dem_<id>.png`` (pngquant'd).
+    """Bake every theme's relief into a raster PMTiles pyramid ``data/dem/dem_<id>.pmtiles``.
 
     Writes ``dem.json`` (placement + variant list) and returns it. Safe to run
-    standalone (no Dagster instance) — see ``scripts/build_dem.py``.
+    standalone (no Dagster instance) — see ``scripts/build_dem.py``. Needs GDAL.
     """
     Paths.ensure()
-    pngquant = shutil.which("pngquant")
-    if not pngquant:
-        raise RuntimeError(
-            "pngquant not found on PATH — needed to compress the relief PNGs. "
-            "Install it (apt-get install pngquant) or link a binary into PATH."
-        )
-
     min_lon, min_lat, max_lon, max_lat = CALI_BBOX
     x0, y0 = _merc(min_lon, min_lat)
     x1, y1 = _merc(max_lon, max_lat)
     width = RENDER_WIDTH
     height = max(1, round(width * (y1 - y0) / (x1 - x0)))
-    out_w = OUTPUT_WIDTH
-    out_h = max(1, round(out_w * (y1 - y0) / (x1 - x0)))
+    # GeoTIFF placement: upper-left = (west, north), lower-right = (east, south).
+    ullr = (x0, y1, x1, y0)
 
     elev = _load_elevation(width, height)
     hs = _hillshade(elev, width)
@@ -232,39 +254,26 @@ def build_dem_relief() -> dict:
         f = (1 - spec["shade"] * (1 - hs))[..., None]  # darken-only
         rgb = np.clip(tint * f, 0, 255)
         img = Image.fromarray(np.dstack([rgb, alpha]).astype(np.uint8), "RGBA")
-        if (out_w, out_h) != (width, height):  # supersample z13 detail down
-            img = img.resize((out_w, out_h), Image.LANCZOS)
-        out = Paths.dem / f"dem_{spec['id']}.png"
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
-            raw = Path(tf.name)
-        try:
-            img.save(raw)
-            subprocess.run(
-                [pngquant, "--quality", "65-90", "--speed", "1", "--force",
-                 "--strip", "--output", str(out), str(raw)],
-                check=True, capture_output=True, text=True,
-            )
-        finally:
-            raw.unlink(missing_ok=True)
+        out = Paths.dem / f"dem_{spec['id']}.pmtiles"
+        _tile_to_pmtiles(img, out, ullr)
         # Content hash in the URL busts BROWSER cache when the bake changes
-        # (dem.json is served no-cache; each versioned PNG can still cache a day).
+        # (dem.json is served no-cache; each versioned pmtiles can still cache).
         ver = hashlib.sha256(out.read_bytes()).hexdigest()[:8]
         variants.append({
             "id": spec["id"],
             "label_es": spec["label_es"],
             "label_en": spec["label_en"],
-            "url": f"dem/dem_{spec['id']}.png?v={ver}",
+            "url": f"dem/dem_{spec['id']}.pmtiles?v={ver}",
         })
 
-    # MapLibre `image` source corner order: TL, TR, BR, BL (lon/lat). The image is
-    # mercator-rendered over the same bbox, so these corners place it exactly.
+    # bbox corners (TL, TR, BR, BL) — kept for the viewer's "frame the relief" fit.
     coordinates = [
         [min_lon, max_lat], [max_lon, max_lat], [max_lon, min_lat], [min_lon, min_lat],
     ]
     meta = {
         "coordinates": coordinates,
-        "width": out_w,
-        "height": out_h,
+        "width": width,
+        "height": height,
         "default": "original",
         "variants": variants,
     }
@@ -274,11 +283,11 @@ def build_dem_relief() -> dict:
 
 @dg.asset(
     group_name="manifest",
-    description="Bake self-hosted DEM relief PNGs from real elevation (one per theme).",
+    description="Bake self-hosted DEM relief raster PMTiles from real elevation (one per theme).",
 )
 def dem_relief(context: AssetExecutionContext) -> dg.MaterializeResult:
     meta = build_dem_relief()
-    total = sum((Paths.dem / f"dem_{v['id']}.png").stat().st_size for v in meta["variants"])
+    total = sum((Paths.dem / f"dem_{v['id']}.pmtiles").stat().st_size for v in meta["variants"])
     return dg.MaterializeResult(
         metadata={
             "variants": dg.MetadataValue.json([v["id"] for v in meta["variants"]]),

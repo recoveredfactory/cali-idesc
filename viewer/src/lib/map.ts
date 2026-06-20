@@ -788,11 +788,13 @@ function demVariantUrl(dem: DemRelief, variantId?: string): string | undefined {
 	return (v ?? dem.variants[0])?.url;
 }
 
-/** Swap the relief image in place (no remove/re-add) when the selector changes. */
+/** Swap the relief variant (theme change). Raster sources can't be updated in
+ *  place like an image source, so remove + re-add with the new variant's PMTiles.
+ *  Opacity is re-applied by the caller (`applyTheme` → `setReliefOpacity`). */
 export function setDemVariant(map: maplibregl.Map, dem: DemRelief, variantId: string): void {
-	const src = map.getSource(DEM_SRC) as maplibregl.ImageSource | undefined;
-	const url = demVariantUrl(dem, variantId);
-	if (src && url && 'updateImage' in src) src.updateImage({ url: `${DATA_BASE}/${url}` });
+	if (!map.getSource(DEM_SRC)) return; // relief not currently shown
+	removeDem(map);
+	addDem(map, dem, variantId);
 }
 
 /** Report when the baked relief image is (re)loading so the UI can show a spinner
@@ -827,13 +829,15 @@ export function addDem(
 
 	const url = dem ? demVariantUrl(dem, variantId) : undefined;
 	if (dem && url) {
-		// Self-hosted relief: one pre-tinted image placed by its bbox corners.
-		// No runtime dependency on the IDESC WMS, and already colored (MapLibre
-		// can't colorize a grayscale raster — see the pipeline `dem_relief` asset).
+		// Self-hosted relief: a pre-tinted raster PMTiles pyramid (one per theme),
+		// range-served like the basemap. Tiled (not a single image) so it stays sharp
+		// at every zoom on every device — a single image is one GPU texture, capped
+		// at ~4096px on phones, so it blurred when zoomed in. MapLibre can't colorize
+		// a grayscale raster, so the tiles are already colored (see `dem_relief`).
 		map.addSource(DEM_SRC, {
-			type: 'image',
-			url: `${DATA_BASE}/${url}`,
-			coordinates: dem.coordinates
+			type: 'raster',
+			url: `pmtiles://${DATA_BASE}/${url}`,
+			tileSize: 256
 		});
 		map.addLayer(
 			{
