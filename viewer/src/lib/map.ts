@@ -797,23 +797,6 @@ export function setDemVariant(map: maplibregl.Map, dem: DemRelief, variantId: st
 	addDem(map, dem, variantId);
 }
 
-/** Report when the baked relief image is (re)loading so the UI can show a spinner
- *  — the bakes are large (~20 MB). Calls `cb(true)` when the dem image source
- *  starts fetching (toggle on / variant swap) and `cb(false)` once it's painted
- *  or errors. Register once after the map is created. */
-export function watchReliefLoading(map: maplibregl.Map, cb: (loading: boolean) => void): void {
-	map.on('dataloading', (e) => {
-		if ((e as maplibregl.MapSourceDataEvent).sourceId === DEM_SRC) cb(true);
-	});
-	map.on('sourcedata', (e) => {
-		const se = e as maplibregl.MapSourceDataEvent;
-		if (se.sourceId === DEM_SRC && se.isSourceLoaded) cb(false);
-	});
-	map.on('error', (e) => {
-		if ((e as unknown as { sourceId?: string }).sourceId === DEM_SRC) cb(false);
-	});
-}
-
 export function addDem(
 	map: maplibregl.Map,
 	dem?: DemRelief,
