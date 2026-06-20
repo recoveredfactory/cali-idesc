@@ -39,6 +39,7 @@ export type AnalyticsEvents = {
 	'dem-toggle': { on: boolean };
 	'basemap-toggle': { on: boolean };
 	'theme-pick': { theme: Str };
+	'view-reset': void;
 	// --- inspection ---
 	'feature-inspect': { key: Str; geometry: Str };
 	// --- navigation / UI ---

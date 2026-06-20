@@ -35,6 +35,8 @@
 	"dem_hint": "Digital elevation model (DEM) from IDESC",
 	"base": "Base",
 	"base_hint": "Show or hide the base map",
+	"reset_view": "Recenter",
+	"reset_view_hint": "Recenter the map on Cali",
 	"theme_hint": "Map theme: basemap, relief, and data colors move together",
 	"extrude_3d": "3D",
 	"extrude_hint": "Extrude this layer by a numeric field",

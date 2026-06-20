@@ -7,6 +7,7 @@
 	import { app } from '$lib/state/app.svelte';
 	import { themeLabel } from '$lib/i18n';
 	import { track, debounce } from '$lib/analytics';
+	import Recenter from '~icons/solar/gps-bold-duotone';
 
 	// The slider restyles live on every `oninput` tick; log only once it settles.
 	const trackExag = debounce((value: number) => track('exaggeration-change', { value }), 500);
@@ -65,6 +66,16 @@
 				       {app.baseVisible ? 'border-white/80 text-white' : 'border-slate-400 text-transparent'}"
 				aria-hidden="true">✓</span>
 			{m.base()}
+		</button>
+		<button
+			type="button"
+			class="flex h-8 items-center gap-1 rounded-lg bg-slate-100 pr-2.5 pl-1.5 text-xs font-semibold
+			       text-slate-700 transition hover:bg-slate-200"
+			title={m.reset_view_hint()}
+			onclick={() => app.resetView()}
+		>
+			<Recenter class="h-4 w-4 shrink-0" aria-hidden="true" />
+			{m.reset_view()}
 		</button>
 
 		<div class="ml-auto flex items-center gap-1" title={m.theme_hint()}>

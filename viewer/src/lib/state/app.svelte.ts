@@ -8,6 +8,8 @@ import type { Map as MLMap } from 'maplibre-gl';
 import {
 	THEMES,
 	DEFAULT_THEME,
+	CALI_CENTER,
+	CALI_ZOOM,
 	type Layer,
 	type Manifest,
 	type Theme
@@ -171,7 +173,25 @@ class AppState {
 		this.fieldStats = {};
 		this.randomKey = null;
 		this.closeInspector();
-		this.syncPitch();
+		// A user "clear all" returns to the home view (resetView handles pitch); an
+		// internal clear (a featured swap) leaves the camera for the preset that
+		// follows it.
+		if (this.suppressLayerEvents) this.syncPitch();
+		else this.resetView();
+	}
+
+	/** Ease the camera back to the default Cali view (north-up, flat). Camera
+	 *  only — active layers are left as-is. */
+	resetView(): void {
+		if (!this.map) return;
+		track('view-reset');
+		this.map.easeTo({
+			center: CALI_CENTER,
+			zoom: CALI_ZOOM,
+			pitch: 0,
+			bearing: 0,
+			duration: 700
+		});
 	}
 
 	/** Reveal a random serveable layer and fly to it. Each roll drops the
