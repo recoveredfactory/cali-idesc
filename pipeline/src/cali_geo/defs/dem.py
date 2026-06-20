@@ -1,9 +1,10 @@
 """Self-hosted DEM relief, baked once per theme from a real elevation model.
 
 The viewer can't tint a grayscale raster (MapLibre has no Mapbox-style
-``raster-color``), so the relief is baked ONCE into pre-tinted RGBA PNGs hosted
-alongside the rest of ``data/`` — one per theme, placed with a plain ``image``
-source using the bbox corners in ``dem.json``.
+``raster-color``), so the relief is baked ONCE per theme into a pre-tinted raster
+PMTiles pyramid hosted alongside the rest of ``data/`` and range-served like the
+basemap (``dem.json`` lists the variants + placement bbox). Tiled, not a single
+image, so it stays sharp at every zoom on every device.
 
 Source is the public AWS *terrarium* elevation tiles (no key; global coverage,
 so the relief extends past the city to both cordilleras flanking the Cauca
@@ -17,11 +18,13 @@ valley). For each theme:
    colour, east faces darken. (Brightening lit faces pushed greens to neon.)
 3. Each theme's hypsometric ramp colours by real metres; the low end is tuned
    toward the theme's basemap colour.
-4. Alpha is keyed on elevation-above-valley (``coverage_alpha``) so the flat
-   valley/city dissolves to transparent — mountains emerge from the basemap,
-   the city stays readable, and there's no bbox rectangle.
-5. ``pngquant`` compresses the continuous RGBA bake (truecolor would be tens of
-   MB at this resolution).
+4. Alpha is keyed on elevation-above-valley so the flat valley/city dissolves to
+   transparent — mountains emerge from the basemap, the city stays readable, and
+   there's no bbox rectangle.
+5. The coloured RGBA frame is rendered in horizontal strips straight to a
+   disk-backed raw raster, then a raw VRT hands it to GDAL, which slices the
+   PMTiles pyramid. Strips + streaming keep peak RAM to one band, so the 16000px
+   (z14) bake fits a small box that a full-frame render would OOM.
 """
 
 import hashlib
@@ -46,11 +49,16 @@ from .config import CALI_BBOX, Paths
 # Relief is rendered at this width, then sliced into a raster PMTiles pyramid (one
 # per theme), range-served like the basemap. TILED (not a single image) so it stays
 # sharp at every zoom on every device and lazy-loads on mobile — a single image is
-# one GPU texture, capped at ~4096px on phones, so it blurred when zoomed in. 8000px
-# over the bbox ≈ the z13 terrarium native resolution (the relief's detail ceiling).
-RENDER_WIDTH = 8000
-# Terrarium zoom to fetch (≈19 m/px at this latitude) = the relief's detail ceiling.
-DEM_Z = 13
+# one GPU texture, capped at ~4096px on phones, so it blurred when zoomed in. 16000px
+# over the bbox ≈ the z14 terrarium native resolution (the relief's detail ceiling),
+# so the pyramid stays crisp one zoom deeper (≈9.5 m/px) than the old 8000px/z13 bake.
+RENDER_WIDTH = 16000
+# Terrarium zoom to fetch (≈9.5 m/px at this latitude) = the relief's detail ceiling.
+DEM_Z = 14
+# At 16000px the full-frame float arrays (elev/hillshade/tint are ~0.9–2.8 GB each)
+# would OOM a small box, so the bake is rendered in horizontal row strips and written
+# straight to a disk-backed raw raster — peak RAM is one strip, not the whole frame.
+STRIP_ROWS = 512
 # Shared WEST light (gentle): the look David signed off on.
 HS_AZ, HS_ALT, HS_ZFACTOR = 295.0, 42.0, 1.6
 # Elevation-keyed alpha: transparent <= VALLEY_M, fully opaque VALLEY_M+ALPHA_FADE.
@@ -171,11 +179,17 @@ def _load_elevation(width: int, height: int) -> np.ndarray:
     return elev
 
 
-def _hillshade(elev: np.ndarray, width: int) -> np.ndarray:
+def _px_m(width: int) -> float:
+    """Ground sample distance (metres/pixel) of the output grid."""
     min_lon, min_lat, max_lon, max_lat = CALI_BBOX
-    px_m = (_merc(max_lon, 0)[0] - _merc(min_lon, 0)[0]) / width \
+    return (_merc(max_lon, 0)[0] - _merc(min_lon, 0)[0]) / width \
         * math.cos(math.radians((min_lat + max_lat) / 2))
-    gy, gx = np.gradient(elev * HS_ZFACTOR, px_m)
+
+
+def _hillshade_strip(elev_strip: np.ndarray, px_m: float) -> np.ndarray:
+    """Hillshade of one row strip. Pass a 1-row halo above/below so the gradient's
+    central differences match the full-frame result; the caller drops the halo."""
+    gy, gx = np.gradient(elev_strip * HS_ZFACTOR, px_m)
     slope = np.pi / 2 - np.arctan(np.hypot(gx, gy))
     aspect = np.arctan2(-gy, gx)
     azr, altr = math.radians(HS_AZ), math.radians(HS_ALT)
@@ -183,17 +197,13 @@ def _hillshade(elev: np.ndarray, width: int) -> np.ndarray:
     return np.clip(hs, 0, 1)
 
 
-def _coverage_alpha(elev: np.ndarray) -> np.ndarray:
-    """Alpha keyed on elevation-above-valley: the flat valley/city dissolves to
-    transparent (basemap shows through, no bbox rectangle); mountains read opaque.
-    A border feather guarantees no hard cut where terrain meets the bbox edge."""
-    a = np.clip((elev - VALLEY_M) / ALPHA_FADE, 0, 1) ** 0.85
-    h, w = elev.shape
+def _edge_factors(width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
+    """Separable border feather (per-column, per-row) so terrain meeting the bbox
+    edge dissolves rather than cutting hard. Combined per strip as min(ey, ex)."""
     fr = 0.04
-    ex = np.clip(np.minimum(np.arange(w), w - 1 - np.arange(w)) / (fr * w), 0, 1)
-    ey = np.clip(np.minimum(np.arange(h), h - 1 - np.arange(h)) / (fr * h), 0, 1)
-    edge = np.minimum(ey[:, None], ex[None, :])
-    return a * edge * 255.0
+    ex = np.clip(np.minimum(np.arange(width), width - 1 - np.arange(width)) / (fr * width), 0, 1)
+    ey = np.clip(np.minimum(np.arange(height), height - 1 - np.arange(height)) / (fr * height), 0, 1)
+    return ex, ey
 
 
 def _run(cmd: list[str]) -> None:
@@ -203,21 +213,80 @@ def _run(cmd: list[str]) -> None:
         raise RuntimeError(f"command failed: {' '.join(cmd[:2])} ...\n{tail}")
 
 
-def _tile_to_pmtiles(img: Image.Image, out_pmtiles: Path, ullr: tuple) -> int:
-    """Slice a colored RGBA relief image into a raster PMTiles pyramid.
+def _render_variant(
+    elev: np.ndarray,
+    spec: dict,
+    dat_path: Path,
+    width: int,
+    height: int,
+    px_m: float,
+    ex: np.ndarray,
+    ey: np.ndarray,
+) -> None:
+    """Colour one theme's relief into a disk-backed raw RGBA raster, strip by strip.
 
-    Georeferences it in EPSG:3857 over the bbox, builds an MBTiles + overviews
-    (the lower zooms), then converts to PMTiles. Returns the max zoom level.
-    Needs the GDAL CLI (gdal_translate, gdaladdo) on PATH.
+    Recomputes the (cheap) shared hillshade + alpha per strip rather than holding
+    full-frame copies, so peak RAM is one ``STRIP_ROWS`` band. The output is a flat
+    pixel-interleaved (BIP) uint8 buffer — exactly the C layout of an ``(H, W, 4)``
+    numpy memmap — which a raw VRT then hands to GDAL without re-reading it into RAM.
     """
+    out = np.memmap(dat_path, dtype=np.uint8, mode="w+", shape=(height, width, 4))
+    ev = np.array([s[0] for s in spec["ramp"]], np.float32)
+    ramp_ch = [np.array([s[i] for s in spec["ramp"]], np.float32) for i in (1, 2, 3)]
+    shade = spec["shade"]
+    for r0 in range(0, height, STRIP_ROWS):
+        r1 = min(r0 + STRIP_ROWS, height)
+        h0, h1 = max(0, r0 - 1), min(height, r1 + 1)  # 1-row halo for the gradient
+        hs = _hillshade_strip(elev[h0:h1], px_m)[r0 - h0:r0 - h0 + (r1 - r0)]
+        e = elev[r0:r1]
+        tint = np.stack([np.interp(e, ev, ch) for ch in ramp_ch], -1)
+        f = (1 - shade * (1 - hs))[..., None]  # darken-only: lit faces keep true ramp
+        rgb = np.clip(tint * f, 0, 255)
+        a = (np.clip((e - VALLEY_M) / ALPHA_FADE, 0, 1) ** 0.85) \
+            * np.minimum(ey[r0:r1, None], ex[None, :]) * 255.0
+        out[r0:r1] = np.dstack([rgb, a]).astype(np.uint8)
+    out.flush()
+    del out
+
+
+def _raw_vrt(dat_path: Path, width: int, height: int, ullr: tuple) -> str:
+    """A GDAL VRT describing the BIP raw RGBA ``.dat`` as a georeferenced raster, so
+    GDAL streams it straight to tiles with no giant PNG decode in RAM."""
     ulx, uly, lrx, lry = ullr
+    gt = (ulx, (lrx - ulx) / width, 0.0, uly, 0.0, (lry - uly) / height)
+    line_off = 4 * width
+    interps = ("Red", "Green", "Blue", "Alpha")
+    bands = "\n".join(
+        f'  <VRTRasterBand dataType="Byte" band="{b + 1}" subClass="VRTRawRasterBand">\n'
+        f"    <ColorInterp>{interps[b]}</ColorInterp>\n"
+        f'    <SourceFilename relativeToVRT="0">{dat_path}</SourceFilename>\n'
+        f"    <ImageOffset>{b}</ImageOffset>\n"
+        f"    <PixelOffset>4</PixelOffset>\n"
+        f"    <LineOffset>{line_off}</LineOffset>\n"
+        f"  </VRTRasterBand>"
+        for b in range(4)
+    )
+    return (
+        f'<VRTDataset rasterXSize="{width}" rasterYSize="{height}">\n'
+        f"  <SRS>EPSG:3857</SRS>\n"
+        f"  <GeoTransform>{', '.join(repr(v) for v in gt)}</GeoTransform>\n"
+        f"{bands}\n"
+        f"</VRTDataset>\n"
+    )
+
+
+def _dat_to_pmtiles(dat_path: Path, width: int, height: int, out_pmtiles: Path, ullr: tuple) -> int:
+    """Slice the raw RGBA raster into a raster PMTiles pyramid.
+
+    Wraps the ``.dat`` in a VRT (no copy), builds an MBTiles + overviews (the lower
+    zooms), then converts to PMTiles. Returns the max zoom level. Needs the GDAL CLI
+    (gdal_translate, gdaladdo) on PATH.
+    """
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
-        png, tif, mb = tmp / "r.png", tmp / "r.tif", tmp / "r.mbtiles"
-        img.save(png)  # full-quality RGBA — tiles are the deliverable, no quantizing
-        _run(["gdal_translate", "-q", "-a_srs", "EPSG:3857",
-              "-a_ullr", str(ulx), str(uly), str(lrx), str(lry), str(png), str(tif)])
-        _run(["gdal_translate", "-q", "-of", "MBTILES", "-co", "TILE_FORMAT=PNG", str(tif), str(mb)])
+        vrt, mb = tmp / "r.vrt", tmp / "r.mbtiles"
+        vrt.write_text(_raw_vrt(dat_path, width, height, ullr), encoding="utf-8")
+        _run(["gdal_translate", "-q", "-of", "MBTILES", "-co", "TILE_FORMAT=PNG", str(vrt), str(mb)])
         _run(["gdaladdo", "-q", "-r", "average", str(mb), "2", "4", "8", "16", "32"])
         con = sqlite3.connect(mb)
         maxzoom = int(con.execute("SELECT value FROM metadata WHERE name='maxzoom'").fetchone()[0])
@@ -243,28 +312,26 @@ def build_dem_relief() -> dict:
     ullr = (x0, y1, x1, y0)
 
     elev = _load_elevation(width, height)
-    hs = _hillshade(elev, width)
-    alpha = _coverage_alpha(elev).astype(np.uint8)
+    px_m = _px_m(width)
+    ex, ey = _edge_factors(width, height)
 
     variants = []
-    for spec in RELIEF_RAMPS:
-        ev = np.array([s[0] for s in spec["ramp"]], np.float32)
-        tint = np.stack([np.interp(elev, ev, np.array([s[i] for s in spec["ramp"]], np.float32))
-                         for i in (1, 2, 3)], -1)
-        f = (1 - spec["shade"] * (1 - hs))[..., None]  # darken-only
-        rgb = np.clip(tint * f, 0, 255)
-        img = Image.fromarray(np.dstack([rgb, alpha]).astype(np.uint8), "RGBA")
-        out = Paths.dem / f"dem_{spec['id']}.pmtiles"
-        _tile_to_pmtiles(img, out, ullr)
-        # Content hash in the URL busts BROWSER cache when the bake changes
-        # (dem.json is served no-cache; each versioned pmtiles can still cache).
-        ver = hashlib.sha256(out.read_bytes()).hexdigest()[:8]
-        variants.append({
-            "id": spec["id"],
-            "label_es": spec["label_es"],
-            "label_en": spec["label_en"],
-            "url": f"dem/dem_{spec['id']}.pmtiles?v={ver}",
-        })
+    # One reusable scratch raster (~0.9 GB at 16000px); overwritten per theme.
+    with tempfile.TemporaryDirectory() as td:
+        dat = Path(td) / "relief.dat"
+        for spec in RELIEF_RAMPS:
+            _render_variant(elev, spec, dat, width, height, px_m, ex, ey)
+            out = Paths.dem / f"dem_{spec['id']}.pmtiles"
+            _dat_to_pmtiles(dat, width, height, out, ullr)
+            # Content hash in the URL busts BROWSER cache when the bake changes
+            # (dem.json is served no-cache; each versioned pmtiles can still cache).
+            ver = hashlib.sha256(out.read_bytes()).hexdigest()[:8]
+            variants.append({
+                "id": spec["id"],
+                "label_es": spec["label_es"],
+                "label_en": spec["label_en"],
+                "url": f"dem/dem_{spec['id']}.pmtiles?v={ver}",
+            })
 
     # bbox corners (TL, TR, BR, BL) — kept for the viewer's "frame the relief" fit.
     coordinates = [
