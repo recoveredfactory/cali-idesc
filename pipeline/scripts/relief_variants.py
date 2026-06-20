@@ -45,16 +45,17 @@ CACHE = Path(f"/tmp/cali_relief_elev_{WIDTH}.npy")
 #   oscuro = deep navy mountains on black      (bg #000)
 OLIVE = [(900, 220, 218, 200), (1050, 176, 178, 148), (1500, 132, 146, 110),
          (2200, 96, 120, 88), (3000, 66, 92, 66), (4200, 46, 70, 52)]
-SLATE = [(900, 226, 233, 241), (1050, 192, 210, 230), (1500, 156, 184, 216),
-         (2200, 120, 156, 202), (3000, 92, 132, 188), (4200, 70, 110, 172)]
-# desaturated deep slate (was too blue) — only a hint of cool, stays dark on #000
-OSCURO = [(900, 46, 49, 55), (1050, 55, 59, 66), (1500, 68, 73, 82),
-          (2200, 85, 92, 102), (3000, 104, 112, 124), (4200, 124, 134, 148)]
+# slate: desaturated toward a cool SLATE-GRAY (#708090 family) — "waay too blue" before.
+SLATE = [(900, 227, 230, 235), (1050, 200, 206, 214), (1500, 168, 178, 190),
+         (2200, 134, 148, 164), (3000, 106, 122, 140), (4200, 84, 100, 118)]
+# oscuro: darker + a smidge more contrast (lower mids/shadows; shade 0.50->0.58).
+OSCURO = [(900, 30, 33, 38), (1050, 38, 41, 47), (1500, 50, 54, 62),
+          (2200, 68, 74, 85), (3000, 90, 98, 111), (4200, 112, 122, 138)]
 
 VARIANTS = [
     {"name": "original", "ramp": OLIVE,  "warmth": 0.0, "shade": 0.38, "fade": 150},
     {"name": "slate",    "ramp": SLATE,  "warmth": 0.0, "shade": 0.40, "fade": 150},
-    {"name": "oscuro",   "ramp": OSCURO, "warmth": 0.0, "shade": 0.50, "fade": 150},
+    {"name": "oscuro",   "ramp": OSCURO, "warmth": 0.0, "shade": 0.58, "fade": 150},
 ]
 GOLD = np.array([34, 12, -26], np.float32)  # +R +G -B additive nudge toward gold
 

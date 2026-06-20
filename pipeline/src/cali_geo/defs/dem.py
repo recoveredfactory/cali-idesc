@@ -45,10 +45,10 @@ from .config import CALI_BBOX, Paths
 # finished image DOWN to OUTPUT_WIDTH with LANCZOS — cleaner than sampling the DEM
 # straight to the output grid. OUTPUT_WIDTH is the served PNG width and the real
 # file-size knob: the z13 terrain detail is high-entropy, so PNG compression can't
-# shrink it much — resolution is what controls weight. 5000px ≈ 10 MB/theme,
-# crisp on screen; a dedicated higher-res print bake can bump this later.
+# shrink it much — resolution is what controls weight. 8000px ≈ 22 MB/theme — the
+# crisp/print-quality option (David chose higher-rez over the lighter 5000px).
 RENDER_WIDTH = 8000
-OUTPUT_WIDTH = 5000
+OUTPUT_WIDTH = 8000
 # Terrarium zoom to fetch. z13 ≈ 19 m/px at this latitude — feeds the render grid
 # with real detail (supersampled into the output). z12 would be soft.
 DEM_Z = 13
@@ -75,26 +75,26 @@ RELIEF_RAMPS: list[dict] = [
         ],
     },
     {
-        # Slate: light, blue, pale-to-medium over the pale cool base.
+        # Slate: cool SLATE-GRAY (#708090 family), desaturated — not "blue".
         "id": "slate",
         "label_es": "Pizarra",
         "label_en": "Slate",
         "shade": 0.40,
         "ramp": [
-            (900, 226, 233, 241), (1050, 192, 210, 230), (1500, 156, 184, 216),
-            (2200, 120, 156, 202), (3000, 92, 132, 188), (4200, 70, 110, 172),
+            (900, 227, 230, 235), (1050, 200, 206, 214), (1500, 168, 178, 190),
+            (2200, 134, 148, 164), (3000, 106, 122, 140), (4200, 84, 100, 118),
         ],
     },
     {
-        # Dark: deep desaturated slate mountains on a black page (only a hint of
-        # cool). Stays dark — the valley dissolves to the black base.
+        # Dark: deep desaturated slate on a black page (only a hint of cool).
+        # Darker + a touch more contrast than before; valley dissolves to black.
         "id": "oscuro",
         "label_es": "Relieve oscuro",
         "label_en": "Dark hillshade",
-        "shade": 0.50,
+        "shade": 0.58,
         "ramp": [
-            (900, 46, 49, 55), (1050, 55, 59, 66), (1500, 68, 73, 82),
-            (2200, 85, 92, 102), (3000, 104, 112, 124), (4200, 124, 134, 148),
+            (900, 30, 33, 38), (1050, 38, 41, 47), (1500, 50, 54, 62),
+            (2200, 68, 74, 85), (3000, 90, 98, 111), (4200, 112, 122, 138),
         ],
     },
 ]
