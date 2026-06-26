@@ -9,7 +9,7 @@ hypsometric ramp keyed on real metres, modulates lightness by the hillshade
 
 Args: out_path [azimuth=295] [altitude=42] [zfactor=1.6] [shade=0.7]
 """
-import sys, math, io, urllib.request
+import os, sys, math, io, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from PIL import Image
@@ -21,7 +21,9 @@ ZF = float(sys.argv[4]) if len(sys.argv) > 4 else 1.6      # vertical exaggerati
 SHADE = float(sys.argv[5]) if len(sys.argv) > 5 else 0.7   # light/shadow strength
 Z = 12
 WIDTH = 4000
-ALPHA_SRC = "/home/eads/projects/cali-idesc/pipeline/data/dem/dem_oscuro.png"
+ALPHA_SRC = os.environ.get(
+    "ALPHA_SRC", os.path.join(os.path.dirname(__file__), "..", "data", "dem", "dem_oscuro.png")
+)
 # bbox corners (lon/lat): TL(-77.2,4) ... BR(-76,2.9)
 WEST, EAST, NORTH, SOUTH = -77.2, -76.0, 4.0, 2.9
 

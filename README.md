@@ -4,6 +4,12 @@ Download every layer from the City of Cali's IDESC GeoServer, fix the exotic
 projection, emit **GeoJSON + PMTiles**, and browse it all in a bilingual
 (es/en) MapLibre viewer.
 
+**[Live demo →](https://cali.recoveredfactory.net)**  ·  MIT-licensed  ·  a civic, open-source tool by [Recovered Factory](https://recoveredfactory.net)
+
+> Released as open source **for study and reuse**. The geodata itself is **not**
+> in this repo — it's large and fully rebuildable; the `pipeline/` regenerates it
+> from the public IDESC services. See [CONTRIBUTING](CONTRIBUTING.md) to get involved.
+
 ```
 cali-idesc/
 ├── pipeline/   # Dagster (dg / components) — download → reproject → tile → manifest
@@ -87,3 +93,14 @@ Proven end-to-end on a subset: a 43-feature point layer (→ GeoJSON) and the
 703,538-feature `catastro` building layer (→ 56 MB PMTiles), both green through
 Dagster with completeness + bounds checks passing. Remaining: set
 `ANTHROPIC_API_KEY` and run `layer_translations`, then backfill the full 357.
+
+## License
+
+The **code** in this repository is licensed under the [MIT License](LICENSE).
+
+The underlying **geodata** is published by **IDESC – Alcaldía de Santiago de
+Cali** ([geoportal](https://idesc.cali.gov.co/)); consult IDESC for the terms
+that govern the data itself. This project only reprojects and re-packages it.
+
+Contributions are welcome — see [CONTRIBUTING](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md).
