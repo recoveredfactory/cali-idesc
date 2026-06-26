@@ -9,7 +9,7 @@
 # See DEPLOY.md. The basemap CloudFront Function already CORS-allows
 # *.recoveredfactory.net, so the cross-origin range requests just work.
 #
-# Requires AWS credentials for the basemap account (647111127395, us-east-1).
+# Requires AWS credentials for the account that owns the bucket (region us-east-1).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,15 +17,17 @@ DATA="$ROOT/pipeline/data"
 PREFIX="cali-idesc"
 export AWS_REGION="${AWS_REGION:-us-east-1}"
 
-# Resolve bucket + distribution from the basemap SST outputs (override via env).
-SST_OUTPUTS="${SST_OUTPUTS:-$HOME/projects/basemap/.sst/outputs.json}"
+# Resolve the target S3 bucket + CloudFront distribution. Provide them via env:
+#   BUCKET=<bucket-name> DIST=<distribution-id> ./deploy.sh
+# Or set SST_OUTPUTS=<path/to/.sst/outputs.json> to auto-discover them.
 BUCKET="${BUCKET:-}"; DIST="${DIST:-}"
-if [[ -f "$SST_OUTPUTS" ]]; then
-  BUCKET="${BUCKET:-$(grep -oE 'basemap-prod-pmtilesbucketbucket-[a-z0-9]+' "$SST_OUTPUTS" | head -1)}"
+if [[ ( -z "$BUCKET" || -z "$DIST" ) && -n "${SST_OUTPUTS:-}" && -f "$SST_OUTPUTS" ]]; then
+  BUCKET="${BUCKET:-$(grep -oE '[a-z0-9-]*pmtilesbucket[a-z0-9-]*' "$SST_OUTPUTS" | head -1)}"
   DIST="${DIST:-$(grep -oE '"[A-Z0-9]{13,14}"' "$SST_OUTPUTS" | tr -d '"' | head -1)}"
 fi
-BUCKET="${BUCKET:-basemap-prod-pmtilesbucketbucket-zxcemmvo}"
-DIST="${DIST:-EIT2ALX4WU5RE}"
+if [[ -z "$BUCKET" || -z "$DIST" ]]; then
+  echo "ERROR: set BUCKET and DIST env vars (or SST_OUTPUTS=path/to/outputs.json)"; exit 1
+fi
 
 echo "Bucket=$BUCKET  Dist=$DIST  Prefix=/$PREFIX/data  Region=$AWS_REGION"
 aws sts get-caller-identity >/dev/null || { echo "ERROR: no AWS credentials"; exit 1; }

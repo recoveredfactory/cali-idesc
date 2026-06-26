@@ -4,8 +4,13 @@ Two origins, deployed separately:
 
 | Piece | Lives at | Owned by |
 |-------|----------|----------|
-| **Frontend** (SvelteKit/MapLibre viewer) | `https://cali.recoveredfactory.net/` (alias `https://lo-demas-es-loma.recoveredfactory.net/`) | `~/projects/cali-viewer-deploy` (SST: S3 + CloudFront + ACM + Route 53) |
-| **Data** (`layers.json`, `pmtiles/`, `geojson/`, `dem/`) | `https://pmtiles.grupovisual.org/cali-idesc/data/` | the shared **basemap** bucket (`~/projects/basemap`); uploaded by `./deploy.sh` here |
+| **Frontend** (SvelteKit/MapLibre viewer) | `https://cali.recoveredfactory.net/` (alias `https://lo-demas-es-loma.recoveredfactory.net/`) | a sibling SST app — S3 + CloudFront + ACM + Route 53 (not part of this repo) |
+| **Data** (`layers.json`, `pmtiles/`, `geojson/`, `dem/`) | `https://pmtiles.grupovisual.org/cali-idesc/data/` | a shared S3 + CloudFront bucket; uploaded by `./deploy.sh` here |
+
+> This documents how *we* deploy it. Substitute your own bucket, distribution,
+> domain, and AWS account. The frontend and data are independent origins — you
+> can host the static `viewer/build/` anywhere and point `VITE_DATA_BASE` at
+> wherever the data lives.
 
 The viewer is a pure client-side SPA. Its data is a **different origin** (the
 basemap CloudFront), baked in at build time via `VITE_DATA_BASE`. That basemap
@@ -13,9 +18,9 @@ distribution's CloudFront Function already CORS-allows `*.recoveredfactory.net`,
 so the cross-origin PMTiles byte-range + GeoJSON requests work without changes.
 
 ## Prerequisites
-- AWS credentials for account **647111127395**, region **us-east-1** (same creds
-  as `~/projects/basemap`; `recoveredfactory.net` is a Route 53 zone in this account).
-- `pnpm` deps installed in `viewer/` (frontend) and in `../cali-viewer-deploy/` (SST).
+- AWS credentials for the account that owns the data bucket, region **us-east-1**
+  (`recoveredfactory.net` is a Route 53 zone in the same account).
+- `pnpm` deps installed in `viewer/` (frontend) and in the sibling SST deploy app.
 - Baked data present in `pipeline/data/` (`layers.json`, `pmtiles/`, `geojson/`, `dem/`).
 
 ## Deploy the data → pmtiles.grupovisual.org/cali-idesc/data
@@ -24,8 +29,8 @@ so the cross-origin PMTiles byte-range + GeoJSON requests work without changes.
 ```
 Syncs the ~7 GB served subset (pmtiles, geojson, dem, layers.json) to the basemap
 bucket with correct content-types, and invalidates `/cali-idesc/data/*`.
-Bucket/distribution are read from `~/projects/basemap/.sst/outputs.json` (override
-with `BUCKET=` / `DIST=`). Run this whenever the baked data changes.
+Set `BUCKET` and `DIST` (or point `SST_OUTPUTS` at an SST `outputs.json` to
+auto-discover them). Run this whenever the baked data changes.
 
 ## Deploy the frontend → cali.recoveredfactory.net
 ```bash
