@@ -20,7 +20,7 @@
 	"empty_results": "Ninguna capa coincide.",
 	"language": "Idioma",
 	"about": "Acerca de este mapa",
-	"about_body": "Un visor abierto y bilingüe de los datos geográficos públicos de Santiago de Cali (IDESC): más de 350 capas municipales que puedes explorar, colorear y extruir según sus propios datos, y ver en relieve 3D.\n\nUna herramienta cívica y de código abierto de Recovered Factory.",
+	"about_body": "Un visor abierto y bilingüe de los datos geográficos públicos de Santiago de Cali (<a href=\"https://idesc.cali.gov.co/\" target=\"_blank\" rel=\"noopener\">IDESC</a>): más de 350 capas municipales que puedes explorar, colorear y extruir según sus propios datos, y ver en relieve 3D.\n\nUna herramienta cívica y de código abierto de Recovered Factory.",
 	"brand_tagline": "lo demás es mapa",
 	"about_riff": "Dice el dicho: «Cali es Cali, lo demás es loma». Aquí, lo demás es mapa.",
 	"featured": "Para explorar",

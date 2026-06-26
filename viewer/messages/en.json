@@ -20,7 +20,7 @@
 	"empty_results": "No layer matches.",
 	"language": "Language",
 	"about": "About this map",
-	"about_body": "An open, bilingual viewer for Santiago de Cali's public geospatial data (IDESC) — 350+ municipal layers you can browse, color and extrude by their own data, and explore in 3D relief.\n\nA civic, open-source tool by Recovered Factory.",
+	"about_body": "An open, bilingual viewer for Santiago de Cali's public geospatial data (<a href=\"https://idesc.cali.gov.co/\" target=\"_blank\" rel=\"noopener\">IDESC</a>) — 350+ municipal layers you can browse, color and extrude by their own data, and explore in 3D relief.\n\nA civic, open-source tool by Recovered Factory.",
 	"brand_tagline": "lo demás es mapa",
 	"about_riff": "The saying goes: “Cali es Cali, lo demás es loma” — Cali is Cali, the rest is the hills. Here, the rest is map.",
 	"featured": "Start exploring",
