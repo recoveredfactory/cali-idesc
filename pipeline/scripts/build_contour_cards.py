@@ -44,27 +44,32 @@ ASPECT = TRIM_W / TRIM_H          # width / height
 
 # ---- palette (near-black, cool slate contours, warm-gold glow) -------------
 BG = (10, 12, 16)
-STREET_LOCAL = (92, 102, 118)     # faintest
-STREET_MAJOR = (112, 124, 143)
 CONTOUR = (120, 136, 158)         # faint slate
-HL_GLOW = (255, 196, 96)          # warm amber glow
+HL_GLOW = (255, 196, 96)          # warm amber glow (the lit contour)
 HL_CORE = (255, 240, 206)         # bright warm-white core
+STREET_TEAL = (72, 200, 194)      # cool teal city grid (complements the gold)
 
-A_STREET_LOCAL = 0.09
-A_STREET_MAJOR = 0.16
-A_CONTOUR = 0.16                  # fainter than before (10 m lines pack into mud)
+A_CONTOUR = 0.20                  # faint nested rings, subordinate to the lit line
 # Only draw faint background contours at this interval (m) — index contours, so
 # steep terrain reads as elegant nested rings instead of dense hatching. The lit
 # line is drawn separately and always shows regardless of this.
 BG_INTERVAL = 50
 
-MAJOR_TYPES = {
-    "Via Arteria Principal", "Via Arteria Secundaria",
-    "Via Colectora", "Via Interegional",  # sic: dataset spelling
-}
+# Streets tiered by road class (tipo_via) as a proxy for traffic level: arterials
+# glow and read bright, collectors medium, locals a quiet web. Everything else
+# urban falls to "local".
+ST_ARTERIAL = {"Via Arteria Principal", "Via Interegional"}  # sic: dataset spelling
+ST_COLLECTOR = {"Via Arteria Secundaria", "Via Colectora"}
+A_ST_ARTERIAL = 0.55
+A_ST_COLLECTOR = 0.30
+A_ST_LOCAL = 0.15
+A_ST_GLOW = 120                   # teal glow layer alpha (0-255), arterials only
 
 # line widths in TRIM px (scaled by SS at render)
-W_STREET = 0.6
+W_ST_ARTERIAL = 0.95
+W_ST_COLLECTOR = 0.65
+W_ST_LOCAL = 0.5
+W_ST_GLOW = 3.0
 W_CONTOUR = 0.55
 W_HL_CORE = 1.7
 W_HL_GLOW = 6.0
@@ -72,6 +77,7 @@ W_HL_GLOW = 6.0
 # card elevation sequences
 N_CARDS = 46
 STEP_M = 10                       # deck interval (overridable via --step)
+START_M = 1000                    # card 1 = first cota that reads as a clean line
 
 
 def blend(fg, a, bg=BG):
@@ -101,16 +107,22 @@ def load_contours():
 
 
 def load_streets():
-    """(major_polylines, local_polylines) for the urban zone."""
+    """Urban streets grouped by road-class tier: arterial / collector / local."""
     d = json.loads(STREETS.read_text())
-    major, local = [], []
+    tiers = {"arterial": [], "collector": [], "local": []}
     for f in d["features"]:
         p = f["properties"]
         if p.get("zona") != "URBANA":
             continue
-        polys = _lines(f["geometry"])
-        (major if p.get("tipo_via") in MAJOR_TYPES else local).extend(polys)
-    return major, local
+        t = p.get("tipo_via")
+        key = ("arterial" if t in ST_ARTERIAL
+               else "collector" if t in ST_COLLECTOR else "local")
+        tiers[key].extend(_lines(f["geometry"]))
+    return tiers
+
+
+def all_street_polys(streets):
+    return [pl for tier in streets.values() for pl in tier]
 
 
 def bounds_of(polys):
@@ -162,13 +174,23 @@ def draw_polys(draw, frame, polys, color, width):
 
 
 def render_base(frame, streets):
-    """Dark bg + faint streets + faint contours (shared across a variant's deck)."""
-    major, local = streets
+    """Dark bg + tiered teal streets (arterials glow) — shared across a deck."""
     img = Image.new("RGB", (frame.W, frame.H), BG)
     d = ImageDraw.Draw(img)
-    draw_polys(d, frame, local, blend(STREET_LOCAL, A_STREET_LOCAL), W_STREET)
-    draw_polys(d, frame, major, blend(STREET_MAJOR, A_STREET_MAJOR), W_STREET)
-    return img
+    # quiet teal web underneath: locals then collectors (pre-blended on bg)
+    draw_polys(d, frame, streets["local"],
+               blend(STREET_TEAL, A_ST_LOCAL), W_ST_LOCAL)
+    draw_polys(d, frame, streets["collector"],
+               blend(STREET_TEAL, A_ST_COLLECTOR), W_ST_COLLECTOR)
+    # arterials: subtle teal glow, then brighter cores on top
+    img = img.convert("RGBA")
+    glow = Image.new("RGBA", (frame.W, frame.H), (0, 0, 0, 0))
+    draw_polys(ImageDraw.Draw(glow), frame, streets["arterial"],
+               STREET_TEAL + (A_ST_GLOW,), W_ST_GLOW)
+    img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(radius=W_ST_GLOW * SS * 0.9)))
+    draw_polys(ImageDraw.Draw(img), frame, streets["arterial"],
+               blend(STREET_TEAL, A_ST_ARTERIAL) + (255,), W_ST_ARTERIAL)
+    return img.convert("RGB")
 
 
 def render_all_contours(base, frame, contours):
@@ -201,10 +223,10 @@ def render_card(base_rgba, frame, contours, cota, downscale=True):
 
 
 # ---- variants --------------------------------------------------------------
-def card_levels(contours, mode, step=STEP_M, count=N_CARDS):
+def card_levels(contours, mode, step=STEP_M, count=N_CARDS, start=START_M):
     levels = sorted(contours)
     if mode == "city":
-        picks, lv = [], 950
+        picks, lv = [], start
         while len(picks) < count and lv <= levels[-1]:
             picks.append(min(levels, key=lambda x: abs(x - lv)))  # snap to real level
             lv += step
@@ -230,7 +252,7 @@ def frame_from(cx, cy, span_h):
 
 
 def urban_center(streets):
-    b = bounds_of(streets[0] + streets[1])
+    b = bounds_of(all_street_polys(streets))
     return (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
 
 
@@ -271,8 +293,7 @@ CITY_SHIFT = (0, 0)                # +x east, +y north (metres)
 
 
 def frames(contours, streets):
-    major, local = streets
-    urban = bounds_of(major + local)
+    urban = bounds_of(all_street_polys(streets))
     lo, hi = CENTER_LEVELS
     center_pts = [pl for lv in contours if lo <= lv <= hi for pl in contours[lv]]
     cx0, cy0, cx1, cy1 = bounds_of(center_pts)
@@ -350,6 +371,7 @@ def main():
                     help="render only one framing (default: both)")
     ap.add_argument("--step", type=int, default=STEP_M, help="deck interval (m)")
     ap.add_argument("--count", type=int, default=N_CARDS, help="number of cards")
+    ap.add_argument("--start", type=int, default=START_M, help="card 1 elevation (m)")
     ap.add_argument("--bg", type=int, default=BG_INTERVAL,
                     help="background contour interval (m)")
     ap.add_argument("--calpha", type=float, default=A_CONTOUR, help="contour alpha")
@@ -381,7 +403,8 @@ def main():
         fr = {args.variant: fr[args.variant]}
 
     for mode, frame in fr.items():
-        levels = card_levels(contours, mode, step=args.step, count=args.count)
+        levels = card_levels(contours, mode, step=args.step, count=args.count,
+                             start=args.start)
         print(f"[{mode}] {len(levels)} cards  {levels[0]}..{levels[-1]}m  "
               f"frame {int(frame.x1 - frame.x0)}x{int(frame.y1 - frame.y0)}m")
         base = render_all_contours(render_base(frame, streets), frame, contours)
