@@ -52,7 +52,11 @@ HL_CORE = (255, 240, 206)         # bright warm-white core
 
 A_STREET_LOCAL = 0.09
 A_STREET_MAJOR = 0.16
-A_CONTOUR = 0.24
+A_CONTOUR = 0.16                  # fainter than before (10 m lines pack into mud)
+# Only draw faint background contours at this interval (m) — index contours, so
+# steep terrain reads as elegant nested rings instead of dense hatching. The lit
+# line is drawn separately and always shows regardless of this.
+BG_INTERVAL = 50
 
 MAJOR_TYPES = {
     "Via Arteria Principal", "Via Arteria Secundaria",
@@ -61,13 +65,13 @@ MAJOR_TYPES = {
 
 # line widths in TRIM px (scaled by SS at render)
 W_STREET = 0.6
-W_CONTOUR = 0.7
+W_CONTOUR = 0.55
 W_HL_CORE = 1.7
 W_HL_GLOW = 6.0
 
 # card elevation sequences
 N_CARDS = 46
-STEP_M = 10                       # native contour interval
+STEP_M = 10                       # deck interval (overridable via --step)
 
 
 def blend(fg, a, bg=BG):
@@ -170,7 +174,9 @@ def render_base(frame, streets):
 def render_all_contours(base, frame, contours):
     d = ImageDraw.Draw(base)
     c = blend(CONTOUR, A_CONTOUR)
-    for polys in contours.values():
+    for cota, polys in contours.items():
+        if cota % BG_INTERVAL:        # thin to index contours only
+            continue
         draw_polys(d, frame, polys, c, W_CONTOUR)
     return base
 
@@ -195,10 +201,14 @@ def render_card(base_rgba, frame, contours, cota, downscale=True):
 
 
 # ---- variants --------------------------------------------------------------
-def card_levels(contours, mode):
+def card_levels(contours, mode, step=STEP_M, count=N_CARDS):
     levels = sorted(contours)
     if mode == "city":
-        return [lv for lv in levels if lv >= 950][:N_CARDS]
+        picks, lv = [], 950
+        while len(picks) < count and lv <= levels[-1]:
+            picks.append(min(levels, key=lambda x: abs(x - lv)))  # snap to real level
+            lv += step
+        return picks
     # climb: N_CARDS spread from valley floor to the top, snapped to real levels
     lo, hi = 950, max(levels)
     picks = []
@@ -252,18 +262,20 @@ def zoom_ladder(contours, streets):
     return contact_sheet(cells, labels, cols=len(LADDER_SPANS))
 
 
-# fixed city framing (locked from the zoom ladder): 26 km tall, centred on the
-# 950..1400 m subject band, nudged to balance the composition.
+# fixed city framing (locked from the zoom ladder): 26 km tall. Centre on the
+# 1000..1400 m band, which all fits the portrait frame; the 950 m valley floor
+# uniquely sprawls ~22 km E-W and is allowed to spill past the edges on card 1.
 CITY_SPAN = 26000
-CITY_SHIFT = (300, -1500)          # +x east, +y north (metres)
+CENTER_LEVELS = (1000, 1400)
+CITY_SHIFT = (0, 0)                # +x east, +y north (metres)
 
 
 def frames(contours, streets):
     major, local = streets
     urban = bounds_of(major + local)
-    city_levels = [lv for lv in contours if 950 <= lv <= 1400]
-    city_pts = [pl for lv in city_levels for pl in contours[lv]]
-    cx0, cy0, cx1, cy1 = bounds_of(city_pts)
+    lo, hi = CENTER_LEVELS
+    center_pts = [pl for lv in contours if lo <= lv <= hi for pl in contours[lv]]
+    cx0, cy0, cx1, cy1 = bounds_of(center_pts)
     ccx = (cx0 + cx1) / 2 + CITY_SHIFT[0]
     ccy = (cy0 + cy1) / 2 + CITY_SHIFT[1]
     all_pts = [pl for polys in contours.values() for pl in polys]
@@ -272,6 +284,32 @@ def frames(contours, streets):
         "city": frame_from(ccx, ccy, CITY_SPAN),
         "climb": Frame(fit_aspect(climb_src, ASPECT)),
     }
+
+
+def style_compare(contours, streets, level=1150):
+    """One reference card rendered across background-contour treatments, so we
+    can dial faintness / thinning side by side."""
+    lo, hi = CENTER_LEVELS
+    pts = [pl for lv in contours if lo <= lv <= hi for pl in contours[lv]]
+    x0, y0, x1, y1 = bounds_of(pts)
+    frame = frame_from((x0 + x1) / 2, (y0 + y1) / 2, CITY_SPAN)
+    treatments = [
+        (10, 0.24, 0.7, "10 m  ·  current (mud)"),
+        (50, 0.16, 0.55, "50 m  ·  fainter"),
+        (100, 0.14, 0.5, "100 m  ·  index only"),
+        (100, 0.09, 0.5, "100 m  ·  ghost"),
+    ]
+    global BG_INTERVAL, A_CONTOUR, W_CONTOUR
+    cells, labels = [], []
+    for bg, a, w, lab in treatments:
+        BG_INTERVAL, A_CONTOUR, W_CONTOUR = bg, a, w
+        base = render_all_contours(
+            render_base(frame, streets), frame, contours).convert("RGBA")
+        card = render_card(base, frame, contours, level, downscale=False)
+        cells.append(card.convert("RGB").resize(
+            (380, round(380 / ASPECT)), Image.LANCZOS))
+        labels.append(lab)
+    return contact_sheet(cells, labels, cols=len(treatments))
 
 
 # ---- contact sheet ---------------------------------------------------------
@@ -302,15 +340,28 @@ def contact_sheet(thumbs, labels, cols=8):
 
 # ---- main ------------------------------------------------------------------
 def main():
+    global BG_INTERVAL, A_CONTOUR, W_CONTOUR
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="render every card too")
     ap.add_argument("--ladder", action="store_true", help="only the zoom ladder")
+    ap.add_argument("--compare", action="store_true",
+                    help="only the background-contour style comparison")
     ap.add_argument("--variant", choices=["city", "climb"], default=None,
                     help="render only one framing (default: both)")
+    ap.add_argument("--step", type=int, default=STEP_M, help="deck interval (m)")
+    ap.add_argument("--count", type=int, default=N_CARDS, help="number of cards")
+    ap.add_argument("--bg", type=int, default=BG_INTERVAL,
+                    help="background contour interval (m)")
+    ap.add_argument("--calpha", type=float, default=A_CONTOUR, help="contour alpha")
+    ap.add_argument("--cwidth", type=float, default=W_CONTOUR, help="contour width")
     args = ap.parse_args()
+
+    BG_INTERVAL, A_CONTOUR, W_CONTOUR = args.bg, args.calpha, args.cwidth
 
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"trim {TRIM_W}x{TRIM_H}px  ({CARD_MM[0]}x{CARD_MM[1]}mm @ {DPI}dpi)  SS={SS}")
+    print(f"step={args.step}m  count={args.count}  bg={BG_INTERVAL}m  "
+          f"alpha={A_CONTOUR}  width={W_CONTOUR}")
     print("loading geometry...")
     contours = load_contours()
     streets = load_streets()
@@ -320,12 +371,17 @@ def main():
         print("done -> zoom_ladder.png")
         return
 
+    if args.compare:
+        style_compare(contours, streets).save(OUT / "style_compare.png")
+        print("done -> style_compare.png")
+        return
+
     fr = frames(contours, streets)
     if args.variant:
         fr = {args.variant: fr[args.variant]}
 
     for mode, frame in fr.items():
-        levels = card_levels(contours, mode)
+        levels = card_levels(contours, mode, step=args.step, count=args.count)
         print(f"[{mode}] {len(levels)} cards  {levels[0]}..{levels[-1]}m  "
               f"frame {int(frame.x1 - frame.x0)}x{int(frame.y1 - frame.y0)}m")
         base = render_all_contours(render_base(frame, streets), frame, contours)
