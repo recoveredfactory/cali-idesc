@@ -277,14 +277,41 @@ def draw_grid(card, streets_px, street_rgb, ink, glow, scale=1.0):
     return Image.alpha_composite(base, ov).convert("RGB")
 
 
-def render_card(win, px_m, streets_px, spec, to_trim=True):
+# ---- paper profiles --------------------------------------------------------
+# A small output correction per print stock, applied to the finished card. The
+# master render is "screen"; GLOSSY is punchy (deep Dmax, boosted saturation) so
+# we lift the black point a touch to keep shadow detail from plugging, pull the
+# highlight back a hair against glare, and ease saturation; MATTE is flat so it
+# lifts muddy shadows and adds saturation back.
+PAPER = {
+    "screen": dict(black=0,  white=255, gamma=1.00, sat=1.00),
+    "glossy": dict(black=9,  white=249, gamma=1.05, sat=0.95),
+    "matte":  dict(black=20, white=255, gamma=1.10, sat=1.07),
+}
+
+
+def apply_paper(img, name):
+    p = PAPER.get(name)
+    if p is None or name == "screen":
+        return img
+    a = np.asarray(img, np.float32) / 255.0
+    if p["gamma"] != 1.0:
+        a = np.power(a, 1.0 / p["gamma"])                     # lift midtones
+    a = p["black"] / 255.0 + a * ((p["white"] - p["black"]) / 255.0)   # levels
+    if p["sat"] != 1.0:
+        grey = a.mean(-1, keepdims=True)
+        a = grey + (a - grey) * p["sat"]
+    return Image.fromarray(np.clip(a * 255.0, 0, 255).astype(np.uint8), "RGB")
+
+
+def render_card(win, px_m, streets_px, spec, to_trim=True, paper="screen"):
     scale = win.shape[0] / TRIM_H            # street widths tuned in trim px
     card = Image.fromarray(
         relief(win, px_m, spec["az"], spec["alt"], spec["amb"], spec["dir"]), "RGB")
     card = draw_grid(card, streets_px, spec["street"], spec["ink"], spec["glow"], scale=scale)
     if to_trim:
         card = card.resize((TRIM_W, TRIM_H), Image.LANCZOS)
-    return card
+    return apply_paper(card, paper)
 
 
 # ---- contact sheet ---------------------------------------------------------
@@ -345,11 +372,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="render every card at print res")
     ap.add_argument("--proof", action="store_true", help="true-size proof pages + PDF for a print test")
+    ap.add_argument("--paper", choices=list(PAPER), default="screen",
+                    help="output correction for the print stock (glossy/matte/screen)")
     ap.add_argument("--z", type=int, default=Z, help="terrarium tile zoom")
     args = ap.parse_args()
+    sfx = "" if args.paper == "screen" else f"_{args.paper}"   # keep paper variants separate
 
     OUT.mkdir(parents=True, exist_ok=True)
-    print(f"trim {TRIM_W}x{TRIM_H}px  ({CARD_MM[0]}x{CARD_MM[1]}mm @ {DPI}dpi)")
+    print(f"trim {TRIM_W}x{TRIM_H}px  ({CARD_MM[0]}x{CARD_MM[1]}mm @ {DPI}dpi)  paper={args.paper}")
     elev, ext = load_elev(args.z)
     win = smooth(crop_window(elev, ext), BLUR_SIGMA)
     print(f"card window {win.shape}  elev {win.min():.0f}..{win.max():.0f}m")
@@ -357,28 +387,29 @@ def main():
     px_m = (mx(ce) - mx(cw)) / win.shape[1] * math.cos(math.radians((cn + cs) / 2))
     streets_px = {k: project(v, win.shape) for k, v in load_streets().items()}
 
-    cards = [(spec["label"], render_card(win, px_m, streets_px, spec)) for spec in CYCLE]
-    contact_sheet(cards).save(OUT / "cmp_final.png")
-    print(f"-> cmp_final.png ({len(cards)} cards)")
+    cards = [(spec["label"], render_card(win, px_m, streets_px, spec, paper=args.paper))
+             for spec in CYCLE]
+    contact_sheet(cards).save(OUT / f"cmp_final{sfx}.png")
+    print(f"-> cmp_final{sfx}.png ({len(cards)} cards)")
 
     for lab, img in cards:
         if lab in ("moon", "midday", "dusk"):
-            img.save(OUT / f"card_{lab}.png")
+            img.save(OUT / f"card_{lab}{sfx}.png")
     print("-> sample cards: moon, midday, dusk")
 
     if args.full:
-        deck = OUT / "deck_light"; deck.mkdir(exist_ok=True)
+        deck = OUT / f"deck_light{sfx}"; deck.mkdir(exist_ok=True)
         for i, (lab, img) in enumerate(cards, 1):
             img.save(deck / f"card_{i:02d}_{lab}.png")
-        print(f"-> {len(cards)} full cards in deck_light/")
+        print(f"-> {len(cards)} full cards in deck_light{sfx}/")
 
     if args.proof:
         pages = build_proof(cards)
-        pages[0].save(OUT / "proof_deck.pdf", "PDF", resolution=DPI,
+        pages[0].save(OUT / f"proof_deck{sfx}.pdf", "PDF", resolution=DPI,
                       save_all=True, append_images=pages[1:])
         for i, pg in enumerate(pages, 1):
-            pg.save(OUT / f"proof_p{i}.png")
-        print(f"-> proof_deck.pdf + {len(pages)} proof page PNGs (print at 100%)")
+            pg.save(OUT / f"proof_p{i}{sfx}.png")
+        print(f"-> proof_deck{sfx}.pdf + {len(pages)} proof page PNGs (print at 100%)")
 
 
 if __name__ == "__main__":
