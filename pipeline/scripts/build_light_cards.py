@@ -94,7 +94,7 @@ CYCLE = [
     dict(label="late",      az=250, alt=22, amb=(0.050, 0.066, 0.108), dir=(0.19, 0.23, 0.36), desat=0.80, lift=0.016,
          street=(238, 222, 146), ink=0.24, glow=0.30, tiers=(0.10, 0.52, 1.0), water=( 22,  36,  64)),   # deepest, most obscure; small roads gone
     dict(label="dawn",      az= 82, alt=12, amb=(0.500, 0.480, 0.480), dir=(1.02, 0.84, 0.66),
-         street=(150, 148, 142), ink=0.90, glow=0.08, case=0.45, water=( 96, 116, 142)),   # first light; neutral grey (no more rust)
+         street=(120, 120, 118), ink=0.90, glow=0.08, case=0.62, water=( 96, 116, 142)),   # first light; the old light grey (150) MATCHED the low-sun valley floor (~140) and roads vanished — darker grey + more casing so they read
     dict(label="morning",   az=118, alt=34, amb=(0.500, 0.510, 0.470), dir=(0.88, 0.87, 0.80),
          street=(126, 128, 126), ink=0.82, glow=0.00, case=0.70, water=( 84, 142, 166)),   # fresh green day, neutral grey grid
     dict(label="midday",    az=196, alt=50, amb=(0.440, 0.430, 0.400), dir=(0.75, 0.73, 0.69),
