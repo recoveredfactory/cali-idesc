@@ -82,21 +82,21 @@ RAMP = [(850, 226, 222, 205), (1100, 176, 190, 150), (1500, 120, 150, 108),
 #   street   = base line colour; ink scales presence; glow adds a blurred halo
 CYCLE = [
     dict(label="moon",      az=180, alt=52, amb=(0.14, 0.17, 0.23), dir=(0.36, 0.40, 0.49),
-         street=(232, 228, 196), ink=0.90, glow=1.00),   # dim silver, streets silvery-yellow glow
+         street=(232, 228, 196), ink=0.50, glow=0.50),   # dim silver, streets a soft silvery-yellow glow
     dict(label="late",      az=250, alt=22, amb=(0.13, 0.16, 0.22), dir=(0.32, 0.36, 0.44),
-         street=(232, 228, 196), ink=0.48, glow=0.45),   # dimmer, same shade, less street light
-    dict(label="dawn",      az= 82, alt=12, amb=(0.34, 0.34, 0.42), dir=(1.06, 0.74, 0.52),
-         street=(158, 128, 114), ink=0.80, glow=0.00),   # first light warm, streets rusty-grey, matte
+         street=(232, 228, 196), ink=0.34, glow=0.32),   # dimmer, same shade, less street light
+    dict(label="dawn",      az= 82, alt=12, amb=(0.50, 0.48, 0.48), dir=(1.02, 0.84, 0.66),
+         street=(146, 112,  98), ink=0.95, glow=0.00),   # creamy first light, streets clearly rusty-grey
     dict(label="morning",   az=118, alt=34, amb=(0.48, 0.50, 0.52), dir=(0.86, 0.86, 0.82),
          street=(120, 140, 136), ink=0.72, glow=0.00),   # lower-contrast day base, rust -> teal-grey
     dict(label="midday",    az=196, alt=50, amb=(0.42, 0.43, 0.44), dir=(0.72, 0.73, 0.72),
          street=( 96, 124, 122), ink=0.72, glow=0.00),   # neutral web-map look, not blown out
     dict(label="afternoon", az=238, alt=34, amb=(0.52, 0.50, 0.52), dir=(1.22, 0.96, 0.66),
-         street=( 26, 140, 136), ink=0.90, glow=0.00),   # "right on" — warm low sun, day teal
+         street=( 92, 124, 120), ink=0.90, glow=0.00),   # "right on" — warm low sun, greyed-teal streets
     dict(label="dusk",      az=288, alt=12, amb=(0.30, 0.27, 0.34), dir=(1.32, 0.96, 0.50),
-         street=(236, 200, 140), ink=0.92, glow=0.85),   # golden + richer, streets going gold/glow
-    dict(label="nightfall", az=300, alt=16, amb=(0.22, 0.21, 0.26), dir=(0.66, 0.50, 0.42),
-         street=(176, 138, 124), ink=0.70, glow=0.38),   # dawn, but at night — rusty-grey, faint glow
+         street=(236, 200, 140), ink=0.50, glow=0.45),   # golden + richer, streets a hint of gold glow
+    dict(label="nightfall", az=300, alt=16, amb=(0.18, 0.19, 0.25), dir=(0.50, 0.52, 0.60),
+         street=(208, 200, 178), ink=0.45, glow=0.40),   # dusk fading to night — cooling toward the moon
 ]
 
 # ---- streets ---------------------------------------------------------------
