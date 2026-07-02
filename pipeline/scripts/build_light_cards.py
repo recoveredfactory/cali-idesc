@@ -94,15 +94,15 @@ CYCLE = [
     dict(label="late",      az=250, alt=22, amb=(0.050, 0.066, 0.108), dir=(0.19, 0.23, 0.36), desat=0.80, lift=0.016,
          street=(238, 222, 146), ink=0.24, glow=0.30, tiers=(0.10, 0.52, 1.0), water=( 22,  36,  64)),   # deepest, most obscure; small roads gone
     dict(label="dawn",      az= 82, alt=12, amb=(0.500, 0.480, 0.480), dir=(1.02, 0.84, 0.66),
-         street=(150, 148, 142), ink=0.90, glow=0.08, water=( 96, 116, 142)),   # first light; neutral grey (no more rust)
+         street=(150, 148, 142), ink=0.90, glow=0.08, case=0.45, water=( 96, 116, 142)),   # first light; neutral grey (no more rust)
     dict(label="morning",   az=118, alt=34, amb=(0.500, 0.510, 0.470), dir=(0.88, 0.87, 0.80),
-         street=(126, 128, 126), ink=0.82, glow=0.00, water=( 84, 142, 166)),   # fresh green day, neutral grey grid
+         street=(126, 128, 126), ink=0.82, glow=0.00, case=0.70, water=( 84, 142, 166)),   # fresh green day, neutral grey grid
     dict(label="midday",    az=196, alt=50, amb=(0.440, 0.430, 0.400), dir=(0.75, 0.73, 0.69),
-         street=(120, 122, 122), ink=0.82, glow=0.00, water=( 92, 170, 198)),   # bright green; grey grid, vivid river
+         street=(120, 122, 122), ink=0.82, glow=0.00, case=0.80, water=( 92, 170, 198)),   # bright green; grey grid, vivid river
     dict(label="afternoon", az=238, alt=34, amb=(0.530, 0.500, 0.470), dir=(1.22, 0.96, 0.66),
-         street=(128, 128, 124), ink=0.90, glow=0.00, water=( 88, 152, 176)),   # golden-green, neutral grey grid
+         street=(128, 128, 124), ink=0.90, glow=0.00, case=0.80, water=( 88, 152, 176)),   # golden-green, neutral grey grid
     dict(label="dusk",      az=288, alt=12, amb=(0.300, 0.270, 0.340), dir=(1.32, 0.96, 0.50),
-         street=(150, 150, 150), ink=0.82, glow=0.22, water=( 98, 112, 140)),   # neutral grey + faint glow so it pops on warm gold
+         street=(150, 150, 150), ink=0.82, glow=0.22, case=0.35, water=( 98, 112, 140)),   # neutral grey + faint glow so it pops on warm gold
     dict(label="nightfall", az=300, alt=16, amb=(0.150, 0.160, 0.222), dir=(0.44, 0.47, 0.58), desat=0.52, lift=0.052,
          street=(214, 204, 160), ink=0.52, glow=0.42, tiers=(0.50, 0.90, 1.0), water=( 50,  70, 102)),   # warming back toward the glow
 ]
@@ -168,6 +168,7 @@ def interp_spec(k0, k1, t):
         amb=_lerp_rgb(k0["amb"], k1["amb"], t), dir=_lerp_rgb(k0["dir"], k1["dir"], t),
         street=_lerp_lab(k0["street"], k1["street"], t), water=_lerp_lab(k0["water"], k1["water"], t),
         ink=_lerp(k0["ink"], k1["ink"], t), glow=_lerp(k0["glow"], k1["glow"], t),
+        case=_lerp(k0.get("case", 0.0), k1.get("case", 0.0), t),
         tiers=_lerp_rgb(d0, d1, t),
         desat=_lerp(k0.get("desat", DESAT), k1.get("desat", DESAT), t),
         lift=_lerp(k0.get("lift", AMB_LIFT), k1.get("lift", AMB_LIFT), t),
@@ -402,6 +403,13 @@ ST_ALPHA = {"local": 60, "collector": 120, "arterial": 200}
 # sharpens the streets instead of halving their width
 ST_W_MM = {"local": 0.085, "collector": 0.17, "arterial": 0.255}
 GLOW_MM = 0.30                    # halo blur radius, in mm on the trim card
+# daytime casing: a whisper of a dark edge UNDER each road, so it reads as a drawn
+# line even where the grey street value coincides with the lit ground — the flat
+# valley floor's hillshade mottling has the same faint amplitude as the local grid,
+# so without an edge the roads dissolve into terrain. Hands off to the night glow.
+CASE_RGB = (52, 48, 44)          # soft warm-dark edge (not black — keeps the light look)
+CASE_PAD_MM = 0.045              # how far the casing peeks past the line, each side
+CASE_BLUR_MM = 0.05              # soften it so it's an edge, not a second hard line
 
 
 # water stroke widths (mm on the trim card)
@@ -430,11 +438,12 @@ def draw_water(card, water_px, water_rgb, scale=1.0):
     return Image.alpha_composite(card.convert("RGBA"), ov).convert("RGB")
 
 
-def draw_grid(card, streets_px, street_rgb, ink, glow, tiers=(1.0, 1.0, 1.0), scale=1.0):
+def draw_grid(card, streets_px, street_rgb, ink, glow, tiers=(1.0, 1.0, 1.0), scale=1.0, case=0.0):
     """Draw the city grid in a single per-phase colour. `ink` scales how present
     the streets are; `tiers` = (local, collector, arterial) per-tier multipliers so
     small roads can recede at night; `glow` (>0) lays a blurred halo underneath so
-    night/dusk lights actually glow instead of reading as flat lines."""
+    night/dusk lights actually glow instead of reading as flat lines; `case` (>0) lays
+    a soft dark casing underneath so daytime roads keep an edge on mid/bright ground."""
     wid = {t: max(1, round(_px(ST_W_MM[t]) * scale)) for t in ST_W_MM}
     tmul = {"local": tiers[0], "collector": tiers[1], "arterial": tiers[2]}
     base = card.convert("RGBA")
@@ -452,6 +461,21 @@ def draw_grid(card, streets_px, street_rgb, ink, glow, tiers=(1.0, 1.0, 1.0), sc
                     hd.line(pts, fill=(*street_rgb, a), width=w, joint="curve")
         halo = halo.filter(ImageFilter.GaussianBlur(radius=max(2.0, _px(GLOW_MM) * scale)))
         base = Image.alpha_composite(base, halo)
+
+    if case > 0:                                     # soft dark edge, under the crisp lines
+        pad = max(1, round(_px(CASE_PAD_MM) * scale))
+        cov = Image.new("RGBA", card.size, (0, 0, 0, 0))
+        cd = ImageDraw.Draw(cov)
+        for tier in ("local", "collector", "arterial"):
+            a = int(ST_ALPHA[tier] * ink * tmul[tier] * case * 0.6)
+            if a <= 0:
+                continue
+            w = wid[tier] + 2 * pad
+            for pts in streets_px[tier]:
+                if len(pts) >= 2:
+                    cd.line(pts, fill=(*CASE_RGB, a), width=w, joint="curve")
+        cov = cov.filter(ImageFilter.GaussianBlur(radius=max(1.0, _px(CASE_BLUR_MM) * scale)))
+        base = Image.alpha_composite(base, cov)
 
     ov = Image.new("RGBA", card.size, (0, 0, 0, 0))  # crisp lines on top
     d = ImageDraw.Draw(ov)
@@ -516,7 +540,7 @@ def render_card(win, px_m, streets_px, water_px, spec, to_trim=True, paper="scre
                lift=spec.get("lift", AMB_LIFT), desat=spec.get("desat", DESAT)), "RGB")
     card = draw_water(card, water_px, spec["water"], scale=scale)      # water under the streets
     card = draw_grid(card, streets_px, spec["street"], spec["ink"], spec["glow"],
-                     tiers=spec.get("tiers", (1.0, 1.0, 1.0)), scale=scale)
+                     tiers=spec.get("tiers", (1.0, 1.0, 1.0)), scale=scale, case=spec.get("case", 0.0))
     if to_trim:
         card = card.resize((TRIM_W, TRIM_H), Image.LANCZOS)
     return apply_paper(card, paper)
