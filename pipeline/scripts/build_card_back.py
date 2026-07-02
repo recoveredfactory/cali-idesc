@@ -233,7 +233,7 @@ def moon_study(elev, ext, out):
 # reused everywhere. David picked "fainter" (near_fade up), pushed everything up a touch (base
 # down), and — key — the FAINT far crest was flying too high, so far_gentle/far_smooth make it a
 # soft low arc. Ridges up near the (now slightly smaller) moon, open field below to write in.
-RIDGE_LAYERED = dict(layers=3, spread=0.55, parallax=0.0, amp=0.13, base=0.50,
+RIDGE_LAYERED = dict(layers=3, spread=0.55, parallax=0.0, amp=0.13, base=0.46,
                      crest_blur=70, gamma=1.0, tuck=0.35, near_fade=0.32,
                      far_gentle=0.5, far_smooth=1.0)
 
