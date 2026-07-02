@@ -77,9 +77,11 @@ RAMP = [(850, 226, 222, 205), (1100, 176, 190, 150), (1500, 120, 150, 108),
 # ---- the cycle -------------------------------------------------------------
 # Each stop carries its own LIGHT (sun/moon az+alt, ambient + direct as albedo
 # multipliers) AND its own STREET character (colour, ink = how present, glow =
-# halo strength). The streets trace a full day: silvery-yellow city lights at
-# night -> rust at dawn -> teal-grey through the day -> gold at dusk -> back to
-# night. Opens on the moon, returns to her.
+# halo strength). The streets ride ONE simple axis: a glowy sodium-yellow at
+# night -> a neutral daytime grey -> back to glow. No per-phase hue tricks — the
+# point is VALUE contrast: the grid is lighter than a dark ground and darker than
+# a bright one, so it always reads, and grey/yellow keep it clear of the blue
+# water. Opens on the moon, returns to her.
 #   amb/dir  = RGB multipliers of albedo (cool skylight vs warm sun / cool moon)
 #   street   = base line colour; ink scales presence; glow adds a blurred halo
 #   water    = per-phase river colour; day = vivid cyan-blue, night = inky indigo
@@ -88,21 +90,21 @@ RAMP = [(850, 226, 222, 205), (1100, 176, 190, 150), (1500, 120, 150, 108),
 #              Both default to the daytime globals (DESAT / AMB_LIFT) when absent.
 CYCLE = [
     dict(label="moon",      az=180, alt=52, amb=(0.078, 0.104, 0.156), dir=(0.24, 0.28, 0.42), desat=0.72, lift=0.028,
-         street=(226, 222, 194), ink=0.40, glow=0.42, tiers=(0.30, 0.75, 1.0), water=( 34,  52,  86)),   # inky moonlit night; mostly big roads
+         street=(242, 226, 150), ink=0.42, glow=0.46, tiers=(0.30, 0.75, 1.0), water=( 34,  52,  86)),   # glowy yellow on inky night; big roads
     dict(label="late",      az=250, alt=22, amb=(0.050, 0.066, 0.108), dir=(0.19, 0.23, 0.36), desat=0.80, lift=0.016,
-         street=(220, 214, 188), ink=0.22, glow=0.22, tiers=(0.10, 0.52, 1.0), water=( 22,  36,  64)),   # deepest, most obscure; small roads gone
+         street=(238, 222, 146), ink=0.24, glow=0.30, tiers=(0.10, 0.52, 1.0), water=( 22,  36,  64)),   # deepest, most obscure; small roads gone
     dict(label="dawn",      az= 82, alt=12, amb=(0.500, 0.480, 0.480), dir=(1.02, 0.84, 0.66),
-         street=(118,  82,  62), ink=1.00, glow=0.00, water=( 96, 116, 142)),   # creamy first light, rust streets
+         street=(150, 148, 142), ink=0.90, glow=0.08, water=( 96, 116, 142)),   # first light; neutral grey (no more rust)
     dict(label="morning",   az=118, alt=34, amb=(0.500, 0.510, 0.470), dir=(0.88, 0.87, 0.80),
-         street=(116, 106,  94), ink=0.82, glow=0.00, water=( 84, 142, 166)),   # fresh green day, warm-grey streets
+         street=(126, 128, 126), ink=0.82, glow=0.00, water=( 84, 142, 166)),   # fresh green day, neutral grey grid
     dict(label="midday",    az=196, alt=50, amb=(0.440, 0.430, 0.400), dir=(0.75, 0.73, 0.69),
-         street=(108, 100,  90), ink=0.82, glow=0.00, water=( 92, 170, 198)),   # bright neutral green; vivid river
+         street=(120, 122, 122), ink=0.82, glow=0.00, water=( 92, 170, 198)),   # bright green; grey grid, vivid river
     dict(label="afternoon", az=238, alt=34, amb=(0.530, 0.500, 0.470), dir=(1.22, 0.96, 0.66),
-         street=(126, 114, 100), ink=0.90, glow=0.00, water=( 88, 152, 176)),   # golden-green, warm-grey streets
+         street=(128, 128, 124), ink=0.90, glow=0.00, water=( 88, 152, 176)),   # golden-green, neutral grey grid
     dict(label="dusk",      az=288, alt=12, amb=(0.300, 0.270, 0.340), dir=(1.32, 0.96, 0.50),
-         street=(232, 206, 150), ink=0.60, glow=0.30, water=( 98, 112, 140)),   # golden + richer; cool water contrast
+         street=(150, 150, 150), ink=0.82, glow=0.22, water=( 98, 112, 140)),   # neutral grey + faint glow so it pops on warm gold
     dict(label="nightfall", az=300, alt=16, amb=(0.150, 0.160, 0.222), dir=(0.44, 0.47, 0.58), desat=0.52, lift=0.052,
-         street=(206, 198, 178), ink=0.45, glow=0.40, tiers=(0.50, 0.90, 1.0), water=( 50,  70, 102)),   # dusk fading toward the moon
+         street=(214, 204, 160), ink=0.52, glow=0.42, tiers=(0.50, 0.90, 1.0), water=( 50,  70, 102)),   # warming back toward the glow
 ]
 
 
