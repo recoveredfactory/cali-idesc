@@ -47,6 +47,12 @@ ZOOM = (-76.700, -76.560, 3.470, 3.300)                   # C: dense swirling co
 ZOOM_JOY = (-76.660, -76.545, 3.455, 3.300)               # D: transects that cross ridges
 WELL = (0.50, 0.62, 0.34, 0.26)                           # writing panel: cx,cy,rx,ry (frac of W,H)
 
+# LOOKING WEST at the Farallones for the layered back — the real photo view. Longitude
+# runs from the high western crest (far) to the city's foothills (near); latitude is the
+# card's N-S sweep, and it maps to the card's WIDTH, so each ridgeline stretches edge to
+# edge (undulating, not ramping up one side). W, E, N, S:
+RIDGE_VIEW = (-76.720, -76.560, 3.560, 3.235)
+
 # moon-over-ridge (concept A) geometry, as fractions of W/H:
 MOON = (0.70, 0.175, 0.115)                               # cx, cy, radius — held FIXED
 RIDGE_BASE = 0.68                                         # horizon line, lowered = more open sky
@@ -149,11 +155,10 @@ def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
     base = (RIDGE_BASE if base is None else base) * H
     amp = (RIDGE_AMP if amp is None else amp) * H
     img = Image.new("RGB", (W, H), t["bg"]); d = ImageDraw.Draw(img, "RGBA")
-    crop = crop_bbox(elev, ext, blc.WINDOW)
-    xs = np.linspace(0, W, crop.shape[1])
-    br = max(2, crop.shape[1] // crest_blur)
     if layers <= 1:
-        sky = _blur1d(crop.max(axis=0), br)
+        crop = crop_bbox(elev, ext, blc.WINDOW)
+        xs = np.linspace(0, W, crop.shape[1])
+        sky = _blur1d(crop.max(axis=0), max(2, crop.shape[1] // crest_blur))
         lo, hi = sky.min(), sky.max()
         n = ((sky - lo) / (hi - lo + 1e-6)) ** gamma
         ys = base - n * amp
@@ -161,20 +166,29 @@ def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
         d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 16))    # barely-there fill under the ridge
         d.line(pts, fill=(*t["line"], 235), width=max(2, W // 340), joint="curve")
     else:
-        lo, hi = float(crop.min()), float(crop.max())              # shared scale across layers
-        bands = np.array_split(np.arange(crop.shape[0]), layers)   # latitude slabs = distinct ridges
+        # LOOKING WEST at the Farallones (the photo): x = LATITUDE, so every ridgeline
+        # stretches edge to edge instead of ramping up one side. Receding layers = distance
+        # bands in longitude: far = the high western crest (pale/high), near = the eastern
+        # foothills (dark/low). Each band's skyline = max elevation across its longitudes.
+        crop = crop_bbox(elev, ext, RIDGE_VIEW)
+        nrow, ncol = crop.shape
+        lo, hi = float(crop.min()), float(crop.max())              # shared scale: far crest tall, foothills short
+        br = max(2, nrow // crest_blur)
+        lon_bands = np.array_split(np.arange(ncol), layers)        # 0 = west (far) .. last = east (near)
+        xs = np.linspace(0, W, nrow)                               # x = latitude, across the full width
         step = amp * spread
         far_base = base - step * (layers - 1)                      # the farthest (top) baseline
         for i in range(layers):                                    # far (high, pale) -> near (low, dark)
             frac = i / (layers - 1)
-            sky = _blur1d(crop[bands[i]].max(axis=0), br)
-            n = ((sky - lo) / (hi - lo + 1e-6)) ** gamma
+            prof = crop[:, lon_bands[i]].max(axis=1)               # skyline over latitude for this distance band
+            prof = _blur1d(prof[::-1], br)                         # [::-1]: looking west, north falls on the right
+            n = ((prof - lo) / (hi - lo + 1e-6)) ** gamma
             descent = step * i                                     # how far this ridge sits below the top
             if i == layers - 1:
                 descent -= tuck * step                             # tuck the nearest up toward the group
             lb = far_base + descent
             ys = lb - n * amp
-            dx = (frac - 0.5) * parallax * W                       # stagger peaks so they don't converge
+            dx = (frac - 0.5) * parallax * W                       # optional lateral stagger between layers
             xsl = xs + dx
             pts = list(zip(xsl, ys))
             if pts[0][0] > 0:                                      # keep the fill/line spanning the card
@@ -210,26 +224,23 @@ def moon_study(elev, ext, out):
     _study(out, [(f"ridge base {b:.2f}", dict(base=b)) for b in (0.52, 0.60, 0.68, 0.76)], elev, ext)
 
 
-# the receding-ridge tuning chosen from the studies, reused everywhere. Base = David's
-# "gentlest" (e), then per his notes: pushed UP toward the moon (smaller base) for more
-# writing field, the cluster TIGHTENED (spread down + the nearest tucked up), and the
-# bottom ridges FADED a touch (ink + writing contrast) — at some cost to depth, which he
-# accepts. "Careful to save ink but ESPECIALLY to save space to write."
-RIDGE_LAYERED = dict(layers=3, spread=0.60, parallax=0.15, amp=0.13, base=0.66,
-                     crest_blur=64, gamma=1.5, tuck=0.5, near_fade=0.22)
+# the receding-ridge tuning for the LOOKING-WEST model (edge-to-edge ridgelines, RIDGE_VIEW),
+# reused everywhere. Per David: ridges UP near the moon (small base) with the open field
+# below to write in; a tight receding cluster; bottom two a touch faded (ink + contrast).
+RIDGE_LAYERED = dict(layers=3, spread=0.55, parallax=0.0, amp=0.13, base=0.54,
+                     crest_blur=70, gamma=1.0, tuck=0.35, near_fade=0.10)
 
 
 def ridge_study(elev, ext, out):
-    """Refine the chosen gentlest ridge per David's notes. Left = plain gentlest (e); then
-    each step tightens the cluster / pushes it up toward the moon / fades the bottom two, so
-    the rightmost frees the most field to write in. `chosen` = the current RIDGE_LAYERED."""
-    e = dict(layers=3, spread=0.90, parallax=0.15, amp=0.13, base=0.75, crest_blur=64, gamma=1.5)
+    """The looking-west ridge (edge-to-edge), tuned toward the photo + David's notes: ridges
+    up near the moon, big field below. Left = chosen; then higher/tighter/fainter variants so
+    the trade (writing space + ink vs sense of depth) is visible."""
     _study(out, [
-        ("a · gentlest (e)",  dict(e)),
-        ("b · tuck+tight",    dict(e, spread=0.60, tuck=0.5)),
-        ("c · +push up",      dict(e, spread=0.60, tuck=0.5, base=0.66)),
-        ("d · chosen",        dict(RIDGE_LAYERED)),
-        ("e · fainter/higher",dict(RIDGE_LAYERED, base=0.60, tuck=0.7, near_fade=0.32)),
+        ("a · chosen",        dict(RIDGE_LAYERED)),
+        ("b · higher",        dict(RIDGE_LAYERED, base=0.52)),
+        ("c · tighter",       dict(RIDGE_LAYERED, base=0.52, spread=0.42, tuck=0.5)),
+        ("d · more depth",    dict(RIDGE_LAYERED, base=0.60, spread=0.75, tuck=0.2, near_fade=0.05, amp=0.15)),
+        ("e · fainter",       dict(RIDGE_LAYERED, base=0.52, near_fade=0.32)),
     ], elev, ext)
 
 PHASES = [                                                  # a lunar month across the deck
