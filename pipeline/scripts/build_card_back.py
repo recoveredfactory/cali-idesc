@@ -54,7 +54,7 @@ WELL = (0.50, 0.62, 0.34, 0.26)                           # writing panel: cx,cy
 RIDGE_VIEW = (-76.720, -76.560, 3.560, 3.235)
 
 # moon-over-ridge (concept A) geometry, as fractions of W/H:
-MOON = (0.70, 0.175, 0.115)                               # cx, cy, radius — held FIXED
+MOON = (0.70, 0.162, 0.102)                               # cx, cy, radius — held FIXED (a touch smaller + higher)
 RIDGE_BASE = 0.68                                         # horizon line, lowered = more open sky
 RIDGE_AMP = 0.20                                          # silhouette height
 
@@ -135,7 +135,7 @@ def _moon(d, W, H, t, illum=1.0, wax=True):
 
 def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
               spread=0.52, parallax=0.0, gamma=1.0, crest_blur=120, illum=1.0, wax=True,
-              tuck=0.0, near_fade=0.0):
+              tuck=0.0, near_fade=0.0, far_gentle=0.0, far_smooth=0.0):
     """A — Farallones skyline under a fine moon; the moon is FIXED and the ridge can
     drop (base -> 1.0) to open up sky. layers=1 is one clean silhouette; layers>1 stacks
     several DEM skylines into receding, atmospheric ridges (far crest high/pale/thin, near
@@ -147,6 +147,9 @@ def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
                 ridge sits tighter to the others instead of trailing low
       near_fade thin/pale the near ridges (0..~0.3) so the bottom two read fainter — saves
                 ink and writing contrast, at some cost to the sense of depth
+      far_gentle lower the FAR ridge's amplitude (0..1) so the faint distant crest is a soft
+                arc, not a high-flying hump (true to the photo — the far cordillera is gentle)
+      far_smooth extra blur on the far ridge (0..~1) — the haze softens distant detail
       parallax  horizontal stagger per layer (frac of W); shifts peaks apart so the ridges
                 don't all pile into one steep corner (the receding-ranges parallax)
       gamma     >1 rounds the crest / gentles the shoulder of the rise
@@ -180,14 +183,16 @@ def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
         far_base = base - step * (layers - 1)                      # the farthest (top) baseline
         for i in range(layers):                                    # far (high, pale) -> near (low, dark)
             frac = i / (layers - 1)
+            bri = max(2, int(round(br * (1 + far_smooth * (1 - frac)))))   # far ridge: hazier, softer
             prof = crop[:, lon_bands[i]].max(axis=1)               # skyline over latitude for this distance band
-            prof = _blur1d(prof[::-1], br)                         # [::-1]: looking west, north falls on the right
+            prof = _blur1d(prof[::-1], bri)                        # [::-1]: looking west, north falls on the right
             n = ((prof - lo) / (hi - lo + 1e-6)) ** gamma
+            ampi = amp * (1 - far_gentle * (1 - frac))             # far ridge gentler (lower amplitude)
             descent = step * i                                     # how far this ridge sits below the top
             if i == layers - 1:
                 descent -= tuck * step                             # tuck the nearest up toward the group
             lb = far_base + descent
-            ys = lb - n * amp
+            ys = lb - n * ampi
             dx = (frac - 0.5) * parallax * W                       # optional lateral stagger between layers
             xsl = xs + dx
             pts = list(zip(xsl, ys))
@@ -225,22 +230,24 @@ def moon_study(elev, ext, out):
 
 
 # the receding-ridge tuning for the LOOKING-WEST model (edge-to-edge ridgelines, RIDGE_VIEW),
-# reused everywhere. Per David: ridges UP near the moon (small base) with the open field
-# below to write in; a tight receding cluster; bottom two a touch faded (ink + contrast).
-RIDGE_LAYERED = dict(layers=3, spread=0.55, parallax=0.0, amp=0.13, base=0.54,
-                     crest_blur=70, gamma=1.0, tuck=0.35, near_fade=0.10)
+# reused everywhere. David picked "fainter" (near_fade up), pushed everything up a touch (base
+# down), and — key — the FAINT far crest was flying too high, so far_gentle/far_smooth make it a
+# soft low arc. Ridges up near the (now slightly smaller) moon, open field below to write in.
+RIDGE_LAYERED = dict(layers=3, spread=0.55, parallax=0.0, amp=0.13, base=0.50,
+                     crest_blur=70, gamma=1.0, tuck=0.35, near_fade=0.32,
+                     far_gentle=0.5, far_smooth=1.0)
 
 
 def ridge_study(elev, ext, out):
     """The looking-west ridge (edge-to-edge), tuned toward the photo + David's notes: ridges
-    up near the moon, big field below. Left = chosen; then higher/tighter/fainter variants so
-    the trade (writing space + ink vs sense of depth) is visible."""
+    up near the moon, big field below, faint gentle far crest. Left = chosen; the rest nudge
+    the far crest's gentleness, overall height, and fade so the trade stays visible."""
     _study(out, [
         ("a · chosen",        dict(RIDGE_LAYERED)),
-        ("b · higher",        dict(RIDGE_LAYERED, base=0.52)),
-        ("c · tighter",       dict(RIDGE_LAYERED, base=0.52, spread=0.42, tuck=0.5)),
-        ("d · more depth",    dict(RIDGE_LAYERED, base=0.60, spread=0.75, tuck=0.2, near_fade=0.05, amp=0.15)),
-        ("e · fainter",       dict(RIDGE_LAYERED, base=0.52, near_fade=0.32)),
+        ("b · far softer",    dict(RIDGE_LAYERED, far_gentle=0.65, far_smooth=1.4)),
+        ("c · higher",        dict(RIDGE_LAYERED, base=0.46)),
+        ("d · less faint",    dict(RIDGE_LAYERED, near_fade=0.18)),
+        ("e · more depth",    dict(RIDGE_LAYERED, spread=0.72, tuck=0.2, near_fade=0.16, far_gentle=0.4)),
     ], elev, ext)
 
 PHASES = [                                                  # a lunar month across the deck
