@@ -44,6 +44,10 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 HERE = Path(__file__).resolve().parent
 DATA = HERE.parent / "data"
 STREETS_LL = DATA / "geojson" / "pot_2014__mov_jerarquizacion_vial.geojson"
+HYD_RIOS = DATA / "geojson" / "pot_2014__bcs_hid_rios.geojson"        # named river polygons (incl. Cauca)
+HYD_QUEB = DATA / "geojson" / "pot_2014__bcs_hid_quebradas.geojson"   # streams (thousands; filter by jerarquia)
+HYD_HUM = DATA / "geojson" / "pot_2014__bcs_hid_humedales.geojson"    # wetlands / lagoons (polygons)
+QUEB_MAIN = {"1"}                                                     # quebrada jerarquia levels to draw (1 = main)
 DEM_CACHE = DATA / "dem" / "cards_dem_z{z}.npy"          # gitignored (data/)
 OUT = Path("/mnt/c/Users/david/OneDrive/Pictures/Screenshots/cali-cards")
 
@@ -82,21 +86,21 @@ RAMP = [(850, 226, 222, 205), (1100, 176, 190, 150), (1500, 120, 150, 108),
 #   street   = base line colour; ink scales presence; glow adds a blurred halo
 CYCLE = [
     dict(label="moon",      az=180, alt=52, amb=(0.14, 0.17, 0.23), dir=(0.36, 0.40, 0.49),
-         street=(232, 228, 196), ink=0.50, glow=0.50),   # dim silver, streets a soft silvery-yellow glow
+         street=(232, 228, 196), ink=0.50, glow=0.50, water=( 72,  98, 130)),   # dim silver; silvery-yellow streets
     dict(label="late",      az=250, alt=22, amb=(0.13, 0.16, 0.22), dir=(0.32, 0.36, 0.44),
-         street=(232, 228, 196), ink=0.34, glow=0.32),   # dimmer, same shade, less street light
+         street=(232, 228, 196), ink=0.34, glow=0.32, water=( 52,  74, 104)),   # dimmer, less street light
     dict(label="dawn",      az= 82, alt=12, amb=(0.50, 0.48, 0.48), dir=(1.02, 0.84, 0.66),
-         street=( 96,  64,  50), ink=1.00, glow=0.00),   # creamy first light, deep rust streets for contrast
+         street=( 96,  64,  50), ink=1.00, glow=0.00, water=(104, 122, 144)),   # creamy first light, deep rust streets
     dict(label="morning",   az=118, alt=34, amb=(0.48, 0.50, 0.52), dir=(0.86, 0.86, 0.82),
-         street=(120, 140, 136), ink=0.72, glow=0.00),   # lower-contrast day base, rust -> teal-grey
+         street=(120, 140, 136), ink=0.72, glow=0.00, water=( 92, 138, 156)),   # lower-contrast day base
     dict(label="midday",    az=196, alt=50, amb=(0.42, 0.43, 0.44), dir=(0.72, 0.73, 0.72),
-         street=( 96, 124, 122), ink=0.72, glow=0.00),   # neutral web-map look, not blown out
+         street=( 96, 124, 122), ink=0.72, glow=0.00, water=(104, 156, 176)),   # neutral web-map look
     dict(label="afternoon", az=238, alt=34, amb=(0.52, 0.50, 0.52), dir=(1.22, 0.96, 0.66),
-         street=( 92, 124, 120), ink=0.90, glow=0.00),   # "right on" — warm low sun, greyed-teal streets
+         street=( 92, 124, 120), ink=0.90, glow=0.00, water=( 96, 144, 160)),   # "right on" — warm low sun
     dict(label="dusk",      az=288, alt=12, amb=(0.30, 0.27, 0.34), dir=(1.32, 0.96, 0.50),
-         street=(248, 224, 164), ink=0.60, glow=0.30),   # golden + richer; brighter gold lights, crisper
+         street=(248, 224, 164), ink=0.60, glow=0.30, water=(104, 120, 138)),   # golden + richer; cool water contrast
     dict(label="nightfall", az=300, alt=16, amb=(0.18, 0.19, 0.25), dir=(0.50, 0.52, 0.60),
-         street=(208, 200, 178), ink=0.45, glow=0.40),   # dusk fading to night — cooling toward the moon
+         street=(208, 200, 178), ink=0.45, glow=0.40, water=( 70,  92, 120)),   # dusk fading toward the moon
 ]
 
 # ---- streets ---------------------------------------------------------------
@@ -236,12 +240,73 @@ def project(lines, shp):
             for ln in lines]
 
 
+# ---- water (rivers, streams, lagoons) --------------------------------------
+def _exterior_rings(geom):
+    t, c = geom["type"], geom["coordinates"]
+    if t == "Polygon":
+        return [c[0]]
+    if t == "MultiPolygon":
+        return [poly[0] for poly in c]
+    return []
+
+
+def _lines_of(geom):
+    t, c = geom["type"], geom["coordinates"]
+    if t == "LineString":
+        return [c]
+    if t == "MultiLineString":
+        return list(c)
+    return []
+
+
+def load_water():
+    """Rivers + lagoons as filled polygons; main quebradas (jerarquia 1) as lines."""
+    rios, hum, queb = [], [], []
+    for f in json.load(open(HYD_RIOS))["features"]:
+        if f.get("geometry"):
+            rios += _exterior_rings(f["geometry"])
+    for f in json.load(open(HYD_HUM))["features"]:
+        if f.get("geometry"):
+            hum += _exterior_rings(f["geometry"])
+    for f in json.load(open(HYD_QUEB))["features"]:
+        g = f.get("geometry")
+        if g and f["properties"].get("jerarquia") in QUEB_MAIN:
+            queb += _lines_of(g)
+    return {"rios": rios, "humedales": hum, "quebradas": queb}
+
+
 # tier presence: arterials read strongest, locals faintest (alpha at ink=1)
 ST_ALPHA = {"local": 60, "collector": 120, "arterial": 200}
 # physical stroke widths (mm on the trim card) — DPI-independent, so raising DPI
 # sharpens the streets instead of halving their width
 ST_W_MM = {"local": 0.085, "collector": 0.17, "arterial": 0.255}
 GLOW_MM = 0.30                    # halo blur radius, in mm on the trim card
+
+
+# water stroke widths (mm on the trim card)
+RIO_W_MM = 0.30                   # river ribbons (thicken thin river polygons so they read)
+QUEB_W_MM = 0.13                  # main streams
+
+
+def draw_water(card, water_px, water_rgb, scale=1.0):
+    """Lay the hydrography under the streets: lagoons + river bodies as filled
+    water, main quebradas as thin streams. One per-phase water colour."""
+    ov = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(ov)
+    rio_w = max(1, round(_px(RIO_W_MM) * scale))
+    queb_w = max(1, round(_px(QUEB_W_MM) * scale))
+
+    for poly in water_px["humedales"]:               # valley lagoons / wetlands
+        if len(poly) >= 3:
+            d.polygon(poly, fill=(*water_rgb, 140))
+    for ln in water_px["quebradas"]:                 # streams off the Farallones
+        if len(ln) >= 2:
+            d.line(ln, fill=(*water_rgb, 150), width=queb_w, joint="curve")
+    for poly in water_px["rios"]:                     # the named rivers (incl. Cauca)
+        if len(poly) >= 3:
+            d.polygon(poly, fill=(*water_rgb, 195))
+            d.line(poly, fill=(*water_rgb, 205), width=rio_w, joint="curve")  # thicken narrow rivers
+    return Image.alpha_composite(card.convert("RGBA"), ov).convert("RGB")
 
 
 def draw_grid(card, streets_px, street_rgb, ink, glow, scale=1.0):
@@ -304,10 +369,11 @@ def apply_paper(img, name):
     return Image.fromarray(np.clip(a * 255.0, 0, 255).astype(np.uint8), "RGB")
 
 
-def render_card(win, px_m, streets_px, spec, to_trim=True, paper="screen"):
+def render_card(win, px_m, streets_px, water_px, spec, to_trim=True, paper="screen"):
     scale = win.shape[0] / TRIM_H            # street widths tuned in trim px
     card = Image.fromarray(
         relief(win, px_m, spec["az"], spec["alt"], spec["amb"], spec["dir"]), "RGB")
+    card = draw_water(card, water_px, spec["water"], scale=scale)      # water under the streets
     card = draw_grid(card, streets_px, spec["street"], spec["ink"], spec["glow"], scale=scale)
     if to_trim:
         card = card.resize((TRIM_W, TRIM_H), Image.LANCZOS)
@@ -386,8 +452,11 @@ def main():
     cw, ce, cn, cs = WINDOW
     px_m = (mx(ce) - mx(cw)) / win.shape[1] * math.cos(math.radians((cn + cs) / 2))
     streets_px = {k: project(v, win.shape) for k, v in load_streets().items()}
+    water_px = {k: project(v, win.shape) for k, v in load_water().items()}
+    print(f"water: {len(water_px['rios'])} rivers, {len(water_px['quebradas'])} streams, "
+          f"{len(water_px['humedales'])} lagoons")
 
-    cards = [(spec["label"], render_card(win, px_m, streets_px, spec, paper=args.paper))
+    cards = [(spec["label"], render_card(win, px_m, streets_px, water_px, spec, paper=args.paper))
              for spec in CYCLE]
     contact_sheet(cards).save(OUT / f"cmp_final{sfx}.png")
     print(f"-> cmp_final{sfx}.png ({len(cards)} cards)")
