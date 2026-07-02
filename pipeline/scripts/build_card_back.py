@@ -110,49 +110,73 @@ def _blur1d(a, r):
     return np.convolve(np.pad(a, r, mode="edge"), k, mode="valid")
 
 
-def _moon(d, W, H, t):
-    """The fixed full moon in the open sky."""
+def _moon(d, W, H, t, illum=1.0, wax=True):
+    """The moon in the open sky. illum in [0,1]: 1=full open ring; <1 also draws the
+    terminator (the lit/unlit boundary) as a fine curve — waxing lights the right limb,
+    waning the left. The disc stays an open line-art ring so it reads on cream or ink."""
     mcx, mcy, mr = MOON
     r, cx, cy = W * mr, W * mcx, H * mcy
     d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(*t["moon"], 235), width=max(2, W // 380))
     d.ellipse([cx - r * 0.86, cy - r * 0.86, cx + r * 0.86, cy + r * 0.86],
               outline=(*t["moon"], 70), width=max(1, W // 700))   # faint inner ring
+    if 0.02 < illum < 0.98:                                       # the terminator (day/night line)
+        phi = math.acos(max(-1.0, min(1.0, 2 * illum - 1)))       # 0 = full .. pi = new
+        yn = np.linspace(-1.0, 1.0, 128)
+        xt = -(1.0 if wax else -1.0) * math.cos(phi) * np.sqrt(1 - yn ** 2)   # ellipse: r|cosφ| wide
+        d.line([(cx + xt[i] * r, cy + yn[i] * r) for i in range(len(yn))],
+               fill=(*t["moon"], 210), width=max(2, W // 460), joint="curve")
 
 
-def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1):
-    """A — Farallones skyline under a fine full moon; the moon is FIXED and the ridge
-    can drop (base -> 1.0) to open up sky. layers=1 is one clean silhouette; layers>1
-    stacks several DEM skylines into receding, atmospheric ridges (far crest high/pale/
-    thin, near ridge low/dark/crisp) — the real layered view from the city."""
+def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
+              spread=0.52, parallax=0.0, gamma=1.0, crest_blur=120, illum=1.0, wax=True):
+    """A — Farallones skyline under a fine moon; the moon is FIXED and the ridge can
+    drop (base -> 1.0) to open up sky. layers=1 is one clean silhouette; layers>1 stacks
+    several DEM skylines into receding, atmospheric ridges (far crest high/pale/thin, near
+    ridge low/dark/crisp) — the real layered view from the city. Tuning the layered look:
+      spread    vertical gap between receding ridges (x amp); bigger = less crowding
+      parallax  horizontal stagger per layer (frac of W); shifts peaks apart so the ridges
+                don't all pile into one steep corner (the receding-ranges parallax)
+      gamma     >1 rounds the crest / gentles the shoulder of the rise
+      crest_blur smaller = more crest smoothing = gentler, less jagged ridge
+    illum/wax pass through to the moon (phase)."""
     base = (RIDGE_BASE if base is None else base) * H
     amp = (RIDGE_AMP if amp is None else amp) * H
     img = Image.new("RGB", (W, H), t["bg"]); d = ImageDraw.Draw(img, "RGBA")
     crop = crop_bbox(elev, ext, blc.WINDOW)
     xs = np.linspace(0, W, crop.shape[1])
+    br = max(2, crop.shape[1] // crest_blur)
     if layers <= 1:
-        sky = _blur1d(crop.max(axis=0), max(2, crop.shape[1] // 120))
+        sky = _blur1d(crop.max(axis=0), br)
         lo, hi = sky.min(), sky.max()
-        ys = base - (sky - lo) / (hi - lo + 1e-6) * amp
+        n = ((sky - lo) / (hi - lo + 1e-6)) ** gamma
+        ys = base - n * amp
         pts = list(zip(xs, ys))
         d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 16))    # barely-there fill under the ridge
         d.line(pts, fill=(*t["line"], 235), width=max(2, W // 340), joint="curve")
     else:
         lo, hi = float(crop.min()), float(crop.max())              # shared scale across layers
         bands = np.array_split(np.arange(crop.shape[0]), layers)   # latitude slabs = distinct ridges
-        step = amp * 0.52
+        step = amp * spread
         for i in range(layers):                                    # far (high, pale) -> near (low, dark)
             frac = i / (layers - 1)
-            sky = _blur1d(crop[bands[i]].max(axis=0), max(2, crop.shape[1] // 120))
+            sky = _blur1d(crop[bands[i]].max(axis=0), br)
+            n = ((sky - lo) / (hi - lo + 1e-6)) ** gamma
             lb = base - (1 - frac) * step * (layers - 1)
-            ys = lb - (sky - lo) / (hi - lo + 1e-6) * amp
-            pts = list(zip(xs, ys))
+            ys = lb - n * amp
+            dx = (frac - 0.5) * parallax * W                       # stagger peaks so they don't converge
+            xsl = xs + dx
+            pts = list(zip(xsl, ys))
+            if pts[0][0] > 0:                                      # keep the fill/line spanning the card
+                pts = [(0.0, ys[0]), *pts]
+            if pts[-1][0] < W:
+                pts = [*pts, (float(W), ys[-1])]
             col = tuple(int(round(blc._lerp(b, l, 0.30 + 0.70 * frac))) for b, l in zip(t["bg"], t["line"]))
             w = max(1, round(W / 440 * (0.5 + 0.75 * frac)))
             d.polygon([(0, H), *pts, (W, H)], fill=(*t["bg"], 255))   # near ridge occludes those behind
             if i == layers - 1:                                       # whisper of ground under the nearest
                 d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 12))
             d.line(pts, fill=(*col, 235), width=w, joint="curve")
-    _moon(d, W, H, t)
+    _moon(d, W, H, t, illum=illum, wax=wax)
     return img
 
 
@@ -175,9 +199,39 @@ def moon_study(elev, ext, out):
 
 
 def ridge_study(elev, ext, out):
-    """Single clean ridge vs stacked, atmospheric receding ridges (the photo look)."""
-    _study(out, [("1 · single", dict(layers=1)), ("2 · layers", dict(layers=2)),
-                 ("3 · layers", dict(layers=3)), ("4 · layers", dict(layers=4))], elev, ext)
+    """3 receding ridges (the chosen look), tuned toward the photo: pull the layers apart
+    so they stop converging on the left, and gentle the slope. Left = today; each step adds
+    one lever, so the rightmost is spread + parallax + a lower, rounder, less-steep ridge."""
+    base3 = dict(layers=3)
+    _study(out, [
+        ("a · today",       dict(**base3)),
+        ("b · +spread",     dict(**base3, spread=0.82)),
+        ("c · +parallax",   dict(**base3, spread=0.82, parallax=0.11)),
+        ("d · gentler",     dict(**base3, spread=0.82, parallax=0.11, amp=0.15, base=0.72, crest_blur=80, gamma=1.3)),
+        ("e · gentlest",    dict(**base3, spread=0.90, parallax=0.15, amp=0.13, base=0.75, crest_blur=64, gamma=1.5)),
+    ], elev, ext)
+
+
+# the receding-ridge tuning chosen from ridge_study (the photo look), reused everywhere
+RIDGE_LAYERED = dict(layers=3, spread=0.82, parallax=0.11, amp=0.15, base=0.72, crest_blur=80, gamma=1.3)
+
+PHASES = [                                                  # a lunar month across the deck
+    ("new",              0.03, True),
+    ("waxing crescent",  0.25, True),
+    ("first quarter",    0.50, True),
+    ("waxing gibbous",   0.75, True),
+    ("full",             1.00, True),
+    ("waning gibbous",   0.75, False),
+    ("last quarter",     0.50, False),
+    ("waning crescent",  0.25, False),
+]
+
+
+def phase_study(elev, ext, out):
+    """The moon carried through its phases over the chosen layered ridge — the back's
+    natural companion to the front's day->night light cycle."""
+    _study(out, [(lab, dict(**RIDGE_LAYERED, illum=il, wax=wx)) for lab, il, wx in PHASES],
+           elev, ext)
 
 
 def _fade_well(layer, well):
@@ -288,7 +342,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="also dump full-res PNGs of every concept/tone")
     ap.add_argument("--moon-study", action="store_true", help="ink moon back at a few ridge heights")
-    ap.add_argument("--ridge-study", action="store_true", help="single vs layered receding ridges")
+    ap.add_argument("--ridge-study", action="store_true", help="tune the 3 receding ridges toward the photo")
+    ap.add_argument("--phase-study", action="store_true", help="the moon through its phases over the ridge")
+    ap.add_argument("--layered-back", action="store_true", help="full-res chosen layered back (both tones)")
     args = ap.parse_args()
     blc.OUT.mkdir(parents=True, exist_ok=True)
     elev, ext = blc.load_elev()
@@ -297,6 +353,15 @@ def main():
         return
     if args.ridge_study:
         ridge_study(elev, ext, blc.OUT / "cmp_ridge_study.png")
+        return
+    if args.phase_study:
+        phase_study(elev, ext, blc.OUT / "cmp_phase_study.png")
+        return
+    if args.layered_back:                                  # full-res chosen back (full moon), both tones
+        for tone in TONES:
+            im = back_moon(blc.TRIM_W, blc.TRIM_H, TONES[tone], elev, ext, **RIDGE_LAYERED)
+            p = blc.OUT / f"back_moonlayers_{tone}.png"
+            im.save(p); print("->", p)
         return
     print("contours: loading (~140MB) ...")
     print(f"contours: {len(load_contours())} polylines")
