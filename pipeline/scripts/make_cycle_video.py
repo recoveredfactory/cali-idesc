@@ -102,6 +102,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--frames", type=int, default=100, help="gradations around the loop")
     ap.add_argument("--fps", type=int, default=24)
+    ap.add_argument("--format", default="tall", help="card aspect: tall / tarot / fat")
     ap.add_argument("--paper", default="screen", help="render correction (screen is truest on a monitor)")
     ap.add_argument("--no-ease", dest="ease", action="store_false", help="constant speed (no settle-on-phase)")
     ap.add_argument("--label", action="store_true", help="overlay the nearest phase name")
@@ -109,16 +110,20 @@ def main():
     args = ap.parse_args()
 
     m = _load_module()
+    m.use_format(args.format)
     m.OUT.mkdir(parents=True, exist_ok=True)
-    print(f"rendering {args.frames} frames (paper={args.paper}, ease={args.ease}, full={args.full}) ...")
+    print(f"rendering {args.frames} frames (format={args.format}, paper={args.paper}, "
+          f"ease={args.ease}, full={args.full}) ...")
+    tag = "" if args.format == "tall" else f"_{args.format}"
     frames, vid_w = render_frames(m, args.frames, args.paper, args.ease, args.label, args.full)
-    strip(frames, m.OUT / "cali_cycle_strip.png")
+    strip_path = m.OUT / f"cali_cycle_strip{tag}.png"
+    strip(frames, strip_path)
     write_frames(frames)
-    out = m.OUT / "cali_cycle.mp4"
+    out = m.OUT / f"cali_cycle{tag}.mp4"
     dur = len(frames) / args.fps
     print(f"{len(frames)} frames @ {vid_w}x{VID_H}, {args.fps}fps ({dur:.1f}s loop) -> encoding ...")
     encode(out, args.fps)
-    print(f"-> {out}\n-> {m.OUT / 'cali_cycle_strip.png'}")
+    print(f"-> {out}\n-> {strip_path}")
 
 
 if __name__ == "__main__":

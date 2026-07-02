@@ -52,16 +52,14 @@ DEM_CACHE = DATA / "dem" / "cards_dem_z{z}.npy"          # gitignored (data/)
 OUT = Path("/mnt/c/Users/david/OneDrive/Pictures/Screenshots/cali-cards")
 
 # ---- print spec ------------------------------------------------------------
-CARD_MM = (70.0, 120.0)          # w x h, portrait
 DPI = 600                         # inkjet resolves this; the earlier fuzziness was screen-only
 def _px(mm): return round(mm / 25.4 * DPI)
-TRIM_W, TRIM_H = _px(CARD_MM[0]), _px(CARD_MM[1])
+# CARD_MM, WINDOW and TRIM_W/TRIM_H are set by use_format() (default "tall"), just
+# below the web-mercator helpers — a format is a print size + the matching window.
 
 # ---- geography -------------------------------------------------------------
 Z = 14                            # terrarium tile zoom (~9.5 m/px here) — finer for print
 FETCH = (-76.72, -76.40, 3.64, 3.16)          # W,E,N,S bbox to fetch (Farallones+city)
-# portrait card window (lon/lat) ~ 70x120 aspect; Farallones fill left, city right
-WINDOW = (-76.655, -76.445, 3.58, 3.22)       # CW, CE, CN, CS
 ZF = 1.45                         # vertical exaggeration (gentler = less intense)
 BLUR_SIGMA = 1.0                  # just kill terrarium stair-stepping; keep detail for print
 # soften the illumination so it reads subtle, not posterized:
@@ -160,6 +158,38 @@ def lat2ty(lat, z):
     s = math.sin(math.radians(lat)); return (0.5 - math.log((1 + s) / (1 - s)) / (4 * math.pi)) * (1 << z)
 def tx2mx(tx, z): return (tx / (1 << z)) * 2 * math.pi * R - math.pi * R
 def ty2my(ty, z): return math.pi * R - (ty / (1 << z)) * 2 * math.pi * R
+
+
+# ---- card formats (aspect) -------------------------------------------------
+# A format = a print size + the geographic window whose aspect MATCHES it, so the
+# terrain is never stretched. "tall" is the original standard-tarot 7:12 (narrow,
+# intense). The fatter formats keep the SAME vertical sweep + centre and just widen
+# the window E-W — so a fatter card shows more land, it doesn't squash the land.
+LAT_N, LAT_S, LON_C = 3.58, 3.22, -76.55       # shared vertical sweep + centre lon
+FORMATS = {
+    "tall":  (70.0, 120.0),        # 7:12 standard tarot — the original narrow frame
+    "tarot": (80.0, 120.0),        # a little fatter, 2:3
+    "fat":   (90.0, 120.0),        # fatter still, 3:4
+}
+
+
+def _window_for(card_mm):
+    """The lon/lat window whose Web-Mercator aspect equals the card's, at the shared
+    vertical sweep + centre lon (so only the E-W breadth changes between formats)."""
+    a = card_mm[0] / card_mm[1]
+    dlon = math.degrees(a * (my(LAT_N) - my(LAT_S)) / R)
+    return (LON_C - dlon / 2, LON_C + dlon / 2, LAT_N, LAT_S)
+
+
+def use_format(name):
+    """Select the active card format: sets CARD_MM, WINDOW, TRIM_W, TRIM_H."""
+    global CARD_MM, WINDOW, TRIM_W, TRIM_H
+    CARD_MM = FORMATS[name]
+    WINDOW = _window_for(CARD_MM)
+    TRIM_W, TRIM_H = _px(CARD_MM[0]), _px(CARD_MM[1])
+
+
+use_format("tall")                 # default; scripts switch it with --format
 
 
 # ---- DEM -------------------------------------------------------------------
@@ -504,12 +534,17 @@ def main():
     ap.add_argument("--proof", action="store_true", help="true-size proof pages + PDF for a print test")
     ap.add_argument("--paper", choices=list(PAPER), default="screen",
                     help="output correction for the print stock (glossy/matte/screen)")
+    ap.add_argument("--format", choices=list(FORMATS), default="tall",
+                    help="card aspect: tall (7:12) / tarot (2:3) / fat (3:4)")
     ap.add_argument("--z", type=int, default=Z, help="terrarium tile zoom")
     args = ap.parse_args()
-    sfx = "" if args.paper == "screen" else f"_{args.paper}"   # keep paper variants separate
+    use_format(args.format)
+    sfx = ("" if args.format == "tall" else f"_{args.format}") + \
+          ("" if args.paper == "screen" else f"_{args.paper}")   # keep variants separate
 
     OUT.mkdir(parents=True, exist_ok=True)
-    print(f"trim {TRIM_W}x{TRIM_H}px  ({CARD_MM[0]}x{CARD_MM[1]}mm @ {DPI}dpi)  paper={args.paper}")
+    print(f"trim {TRIM_W}x{TRIM_H}px  ({CARD_MM[0]}x{CARD_MM[1]}mm @ {DPI}dpi)  "
+          f"format={args.format}  paper={args.paper}")
     elev, ext = load_elev(args.z)
     win = smooth(crop_window(elev, ext), BLUR_SIGMA)
     print(f"card window {win.shape}  elev {win.min():.0f}..{win.max():.0f}m")
