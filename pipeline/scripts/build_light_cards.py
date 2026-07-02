@@ -94,17 +94,17 @@ CYCLE = [
     dict(label="late",      az=250, alt=22, amb=(0.050, 0.066, 0.108), dir=(0.19, 0.23, 0.36), desat=0.80, lift=0.016,
          street=(238, 222, 146), ink=0.24, glow=0.30, tiers=(0.10, 0.52, 1.0), water=( 22,  36,  64)),   # deepest, most obscure; small roads gone
     dict(label="dawn",      az= 82, alt=12, amb=(0.500, 0.480, 0.480), dir=(1.02, 0.84, 0.66),
-         street=(120, 120, 118), ink=0.90, glow=0.08, case=0.62, water=( 96, 116, 142)),   # first light; the old light grey (150) MATCHED the low-sun valley floor (~140) and roads vanished — darker grey + more casing so they read
+         street=(112, 112, 110), ink=0.90, glow=0.08, case=0.70, water=( 96, 116, 142)),   # first light; the old light grey (150) MATCHED the low-sun valley floor (~140) and roads vanished — dark grey + strong casing so they read through the twilight transition
     dict(label="morning",   az=118, alt=34, amb=(0.500, 0.510, 0.470), dir=(0.88, 0.87, 0.80),
-         street=(126, 128, 126), ink=0.82, glow=0.00, case=0.70, water=( 84, 142, 166)),   # fresh green day, neutral grey grid
+         street=(126, 128, 126), ink=0.82, glow=0.00, case=0.60, water=( 84, 142, 166)),   # fresh green day, neutral grey grid
     dict(label="midday",    az=196, alt=50, amb=(0.440, 0.430, 0.400), dir=(0.75, 0.73, 0.69),
-         street=(120, 122, 122), ink=0.82, glow=0.00, case=0.80, water=( 92, 170, 198)),   # bright green; grey grid, vivid river
+         street=(120, 122, 122), ink=0.82, glow=0.00, case=0.55, water=( 92, 170, 198)),   # bright green; grey grid, vivid river
     dict(label="afternoon", az=238, alt=34, amb=(0.530, 0.500, 0.470), dir=(1.22, 0.96, 0.66),
-         street=(128, 128, 124), ink=0.90, glow=0.00, case=0.80, water=( 88, 152, 176)),   # golden-green, neutral grey grid
+         street=(128, 128, 124), ink=0.90, glow=0.00, case=0.55, water=( 88, 152, 176)),   # golden-green, neutral grey grid
     dict(label="dusk",      az=288, alt=12, amb=(0.300, 0.270, 0.340), dir=(1.32, 0.96, 0.50),
-         street=(150, 150, 150), ink=0.82, glow=0.22, case=0.35, water=( 98, 112, 140)),   # neutral grey + faint glow so it pops on warm gold
+         street=(132, 132, 132), ink=0.82, glow=0.22, case=0.62, water=( 98, 112, 140)),   # darker grey (was 150 — lightened INTO the warm gold on the afternoon->dusk swing and washed) + casing held high so no transition dip
     dict(label="nightfall", az=300, alt=16, amb=(0.150, 0.160, 0.222), dir=(0.44, 0.47, 0.58), desat=0.52, lift=0.052,
-         street=(214, 204, 160), ink=0.52, glow=0.42, tiers=(0.50, 0.90, 1.0), water=( 50,  70, 102)),   # warming back toward the glow
+         street=(214, 204, 160), ink=0.52, glow=0.42, case=0.16, tiers=(0.50, 0.90, 1.0), water=( 50,  70, 102)),   # warming back toward the glow
 ]
 
 
@@ -409,7 +409,8 @@ GLOW_MM = 0.30                    # halo blur radius, in mm on the trim card
 # so without an edge the roads dissolve into terrain. Hands off to the night glow.
 CASE_RGB = (52, 48, 44)          # soft warm-dark edge (not black — keeps the light look)
 CASE_PAD_MM = 0.045              # how far the casing peeks past the line, each side
-CASE_BLUR_MM = 0.05              # soften it so it's an edge, not a second hard line
+CASE_BLUR_MM = 0.02              # a hair of AA only — a CRISP edge, not a blurry grey halo
+                                 # (a wide blur smeared the dense downtown grid into a grey mass)
 
 
 # water stroke widths (mm on the trim card)
