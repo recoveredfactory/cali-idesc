@@ -103,6 +103,50 @@ CYCLE = [
          street=(208, 200, 178), ink=0.45, glow=0.40, tiers=(0.50, 0.90, 1.0), water=( 70,  92, 120)),   # dusk fading toward the moon
 ]
 
+
+# ---- interpolating the cycle (smooth gradations) ---------------------------
+# The 8 stops above are keyframes. For a moving-light animation (and for the
+# flip book, which wants ~100 pages), we interpolate BETWEEN them and re-render
+# each in-between properly — so the sun/moon genuinely moves and its shadows
+# sweep, instead of cross-fading two fixed renders (which just ghosts).
+def _lerp(a, b, t): return a + (b - a) * t
+def _lerp_rgb(a, b, t): return tuple(_lerp(x, y, t) for x, y in zip(a, b))
+def _lerp_int(a, b, t): return tuple(int(round(_lerp(x, y, t))) for x, y in zip(a, b))
+def _lerp_ang(a, b, t):
+    """Interpolate an azimuth along the SHORTEST arc (so late->dawn swings the
+    short way across the sky, not a full spin)."""
+    d = ((b - a + 180.0) % 360.0) - 180.0
+    return (a + d * t) % 360.0
+def _ease(t): return t * t * (3.0 - 2.0 * t)      # smoothstep: settle onto each phase
+
+
+def interp_spec(k0, k1, t):
+    """Blend two cycle keyframes at t in [0,1]. Light multipliers (amb/dir/tiers)
+    stay float; colours that go to PIL (street/water) round to int."""
+    d0 = k0.get("tiers", (1.0, 1.0, 1.0)); d1 = k1.get("tiers", (1.0, 1.0, 1.0))
+    return dict(
+        label=k0["label"] if t < 0.5 else k1["label"],
+        az=_lerp_ang(k0["az"], k1["az"], t), alt=_lerp(k0["alt"], k1["alt"], t),
+        amb=_lerp_rgb(k0["amb"], k1["amb"], t), dir=_lerp_rgb(k0["dir"], k1["dir"], t),
+        street=_lerp_int(k0["street"], k1["street"], t), water=_lerp_int(k0["water"], k1["water"], t),
+        ink=_lerp(k0["ink"], k1["ink"], t), glow=_lerp(k0["glow"], k1["glow"], t),
+        tiers=_lerp_rgb(d0, d1, t),
+    )
+
+
+def cycle_frames(n, ease=True, cycle=CYCLE):
+    """N specs evenly around the loop (seamless: frame n would equal frame 0, so
+    nightfall wraps back to the moon). `ease` settles gently onto each named phase;
+    off = constant angular speed. Use this for the video AND the flip-book pages."""
+    m = len(cycle)
+    out = []
+    for i in range(n):
+        u = (i / n) * m                              # position along the loop, in segments
+        seg = int(math.floor(u)) % m
+        t = u - math.floor(u)
+        out.append(interp_spec(cycle[seg], cycle[(seg + 1) % m], _ease(t) if ease else t))
+    return out
+
 # ---- streets ---------------------------------------------------------------
 ST_ARTERIAL = {"Via Arteria Principal", "Via Interegional"}   # sic: dataset spelling
 ST_COLLECTOR = {"Via Arteria Secundaria", "Via Colectora"}
@@ -369,6 +413,23 @@ def apply_paper(img, name):
         grey = a.mean(-1, keepdims=True)
         a = grey + (a - grey) * p["sat"]
     return Image.fromarray(np.clip(a * 255.0, 0, 255).astype(np.uint8), "RGB")
+
+
+def prep_scene(z=Z, target_h=None):
+    """Load the DEM window + project streets/water once. `target_h` downscales the
+    working grid (relief + vector overlays) for a fast preview render; leave None
+    for full print resolution. Returns (win, px_m, streets_px, water_px)."""
+    elev, ext = load_elev(z)
+    win = smooth(crop_window(elev, ext), BLUR_SIGMA)
+    if target_h and target_h < win.shape[0]:
+        sc = target_h / win.shape[0]
+        win = np.asarray(Image.fromarray(win).resize(
+            (round(win.shape[1] * sc), target_h), Image.BILINEAR), np.float32)
+    cw, ce, cn, cs = WINDOW
+    px_m = (mx(ce) - mx(cw)) / win.shape[1] * math.cos(math.radians((cn + cs) / 2))
+    streets_px = {k: project(v, win.shape) for k, v in load_streets().items()}
+    water_px = {k: project(v, win.shape) for k, v in load_water().items()}
+    return win, px_m, streets_px, water_px
 
 
 def render_card(win, px_m, streets_px, water_px, spec, to_trim=True, paper="screen"):
