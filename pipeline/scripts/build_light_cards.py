@@ -58,11 +58,19 @@ Z = 13                            # terrarium tile zoom (~19 m/px here)
 FETCH = (-76.72, -76.40, 3.64, 3.16)          # W,E,N,S bbox to fetch (Farallones+city)
 # portrait card window (lon/lat) ~ 70x120 aspect; Farallones fill left, city right
 WINDOW = (-76.655, -76.445, 3.58, 3.22)       # CW, CE, CN, CS
-ZF = 1.7                          # vertical exaggeration
+ZF = 1.45                         # vertical exaggeration (gentler = less intense)
+BLUR_SIGMA = 2.2                  # smooth the razor-sharp z13 DEM toward the web look
+# soften the illumination so it reads subtle, not posterized:
+AMB_LIFT = 0.08                   # lift shadows
+DIR_GAIN = 0.78                   # pull the direct light back
+DESAT = 0.16                      # a touch toward grey
 
-# ---- albedo (green hypsometric ramp by elevation m -> RGB) -----------------
-RAMP = [(850, 240, 236, 220), (1050, 200, 214, 172), (1500, 142, 184, 120),
-        (2200, 88, 152, 96), (3000, 48, 116, 70), (4200, 30, 88, 56)]
+# ---- albedo (deep cloud-forest hypsometric ramp by elevation m -> RGB) ------
+# The Farallones really are deep green; muted/forest, not neon-GIS. Extra stops
+# keep the gradient smooth (less banding).
+RAMP = [(850, 226, 222, 205), (1100, 176, 190, 150), (1500, 120, 150, 108),
+        (2000, 82, 120, 84), (2600, 56, 96, 70), (3200, 40, 74, 58),
+        (4200, 34, 62, 52)]
 
 # ---- the cycle: (label, azimuth, altitude, ambient_rgb, direct_rgb) --------
 # light given as multipliers of albedo. opens on the moon, returns to night.
@@ -139,6 +147,24 @@ def albedo(elev):
                      for i in (1, 2, 3)], -1)
 
 
+def smooth(a, sigma):
+    """Gaussian-soften the elevation grid (the web relief is blurrier, and it
+    reads better than the z13 DEM's harsh micro-relief)."""
+    if sigma <= 0:
+        return a
+    try:
+        from scipy.ndimage import gaussian_filter
+        return gaussian_filter(a.astype(np.float32), sigma, mode="reflect")
+    except Exception:                        # dependency-free separable fallback
+        r = max(1, int(sigma * 3))
+        x = np.arange(-r, r + 1)
+        k = np.exp(-(x ** 2) / (2 * sigma * sigma)); k /= k.sum()
+        b = np.pad(a.astype(np.float32), ((0, 0), (r, r)), mode="reflect")
+        b = np.stack([np.convolve(row, k, mode="valid") for row in b])
+        b = np.pad(b, ((r, r), (0, 0)), mode="reflect")
+        return np.stack([np.convolve(col, k, mode="valid") for col in b.T]).T
+
+
 def hillshade(elev, az, alt, px_m):
     gy, gx = np.gradient(elev * ZF, px_m)
     slope = np.pi / 2 - np.arctan(np.hypot(gx, gy))
@@ -160,8 +186,12 @@ def soft_clip(v, knee=205.0):
 
 def relief(win, px_m, az, alt, ambient, direct):
     hs = hillshade(win, az, alt, px_m)[..., None]
-    illum = np.array(ambient, np.float32)[None, None] + np.array(direct, np.float32)[None, None] * hs
-    return soft_clip(albedo(win) * illum).astype(np.uint8)
+    amb = np.array(ambient, np.float32)[None, None] + AMB_LIFT
+    dr = np.array(direct, np.float32)[None, None] * DIR_GAIN
+    rgb = albedo(win) * (amb + dr * hs)
+    if DESAT > 0:                                   # ease off the intensity
+        rgb = rgb * (1 - DESAT) + rgb.mean(-1, keepdims=True) * DESAT
+    return soft_clip(rgb).astype(np.uint8)
 
 
 # ---- streets ---------------------------------------------------------------
@@ -254,7 +284,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"trim {TRIM_W}x{TRIM_H}px  ({CARD_MM[0]}x{CARD_MM[1]}mm @ {DPI}dpi)")
     elev, ext = load_elev(args.z)
-    win = crop_window(elev, ext)
+    win = smooth(crop_window(elev, ext), BLUR_SIGMA)
     print(f"card window {win.shape}  elev {win.min():.0f}..{win.max():.0f}m")
     cw, ce, cn, cs = WINDOW
     px_m = (mx(ce) - mx(cw)) / win.shape[1] * math.cos(math.radians((cn + cs) / 2))
