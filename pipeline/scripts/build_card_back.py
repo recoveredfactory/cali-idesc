@@ -110,43 +110,74 @@ def _blur1d(a, r):
     return np.convolve(np.pad(a, r, mode="edge"), k, mode="valid")
 
 
-def back_moon(W, H, t, elev, ext, base=None, amp=None):
-    """A — Farallones skyline under a fine full moon; the moon is FIXED and the ridge
-    can drop (base -> 1.0) to open up sky to write/draw in."""
-    base = (RIDGE_BASE if base is None else base) * H
-    amp = (RIDGE_AMP if amp is None else amp) * H
-    img = Image.new("RGB", (W, H), t["bg"]); d = ImageDraw.Draw(img, "RGBA")
-    crop = crop_bbox(elev, ext, blc.WINDOW)
-    sky = crop.max(axis=0)                                 # per-column silhouette of the highest land
-    sky = _blur1d(sky, max(2, crop.shape[1] // 120))
-    xs = np.linspace(0, W, len(sky))
-    lo, hi = sky.min(), sky.max()
-    ys = base - (sky - lo) / (hi - lo + 1e-6) * amp
-    pts = list(zip(xs, ys))
-    d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 16))   # barely-there fill under the ridge
-    d.line(pts, fill=(*t["line"], 235), width=max(2, W // 340), joint="curve")
-    # full moon in the open sky, upper area away from the high (left) ridge
+def _moon(d, W, H, t):
+    """The fixed full moon in the open sky."""
     mcx, mcy, mr = MOON
     r, cx, cy = W * mr, W * mcx, H * mcy
     d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(*t["moon"], 235), width=max(2, W // 380))
     d.ellipse([cx - r * 0.86, cy - r * 0.86, cx + r * 0.86, cy + r * 0.86],
               outline=(*t["moon"], 70), width=max(1, W // 700))   # faint inner ring
+
+
+def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1):
+    """A — Farallones skyline under a fine full moon; the moon is FIXED and the ridge
+    can drop (base -> 1.0) to open up sky. layers=1 is one clean silhouette; layers>1
+    stacks several DEM skylines into receding, atmospheric ridges (far crest high/pale/
+    thin, near ridge low/dark/crisp) — the real layered view from the city."""
+    base = (RIDGE_BASE if base is None else base) * H
+    amp = (RIDGE_AMP if amp is None else amp) * H
+    img = Image.new("RGB", (W, H), t["bg"]); d = ImageDraw.Draw(img, "RGBA")
+    crop = crop_bbox(elev, ext, blc.WINDOW)
+    xs = np.linspace(0, W, crop.shape[1])
+    if layers <= 1:
+        sky = _blur1d(crop.max(axis=0), max(2, crop.shape[1] // 120))
+        lo, hi = sky.min(), sky.max()
+        ys = base - (sky - lo) / (hi - lo + 1e-6) * amp
+        pts = list(zip(xs, ys))
+        d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 16))    # barely-there fill under the ridge
+        d.line(pts, fill=(*t["line"], 235), width=max(2, W // 340), joint="curve")
+    else:
+        lo, hi = float(crop.min()), float(crop.max())              # shared scale across layers
+        bands = np.array_split(np.arange(crop.shape[0]), layers)   # latitude slabs = distinct ridges
+        step = amp * 0.52
+        for i in range(layers):                                    # far (high, pale) -> near (low, dark)
+            frac = i / (layers - 1)
+            sky = _blur1d(crop[bands[i]].max(axis=0), max(2, crop.shape[1] // 120))
+            lb = base - (1 - frac) * step * (layers - 1)
+            ys = lb - (sky - lo) / (hi - lo + 1e-6) * amp
+            pts = list(zip(xs, ys))
+            col = tuple(int(round(blc._lerp(b, l, 0.30 + 0.70 * frac))) for b, l in zip(t["bg"], t["line"]))
+            w = max(1, round(W / 440 * (0.5 + 0.75 * frac)))
+            d.polygon([(0, H), *pts, (W, H)], fill=(*t["bg"], 255))   # near ridge occludes those behind
+            if i == layers - 1:                                       # whisper of ground under the nearest
+                d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 12))
+            d.line(pts, fill=(*col, 235), width=w, joint="curve")
+    _moon(d, W, H, t)
     return img
 
 
-def moon_study(elev, ext, out):
-    """Ink moon-over-ridge at a few horizon heights (moon fixed) so the exact ridge
-    drop can be chosen by eye."""
-    bases = [0.52, 0.60, 0.68, 0.76]
+def _study(out, panels, elev, ext):
+    """Generic ink moon-back study: panels = [(label, kwargs), ...]."""
     th_h = 1200; th_w = round(th_h * blc.TRIM_W / blc.TRIM_H)
     pad = 16; f = blc._font(22)
-    W = len(bases) * (th_w + pad) + pad; Ht = th_h + 2 * pad + 34
+    W = len(panels) * (th_w + pad) + pad; Ht = th_h + 2 * pad + 34
     s = Image.new("RGB", (W, Ht), (30, 30, 34)); d = ImageDraw.Draw(s)
-    for i, b in enumerate(bases):
-        im = back_moon(th_w, th_h, TONES["ink"], elev, ext, base=b)
+    for i, (lab, kw) in enumerate(panels):
+        im = back_moon(th_w, th_h, TONES["ink"], elev, ext, **kw)
         x0 = pad + i * (th_w + pad); s.paste(im, (x0, pad))
-        d.text((x0 + 4, pad + th_h + 5), f"ridge base {b:.2f}", fill=(215, 215, 215), font=f)
+        d.text((x0 + 4, pad + th_h + 5), lab, fill=(215, 215, 215), font=f)
     s.save(out); print("->", out)
+
+
+def moon_study(elev, ext, out):
+    """Ink moon-over-ridge at a few horizon heights (moon fixed)."""
+    _study(out, [(f"ridge base {b:.2f}", dict(base=b)) for b in (0.52, 0.60, 0.68, 0.76)], elev, ext)
+
+
+def ridge_study(elev, ext, out):
+    """Single clean ridge vs stacked, atmospheric receding ridges (the photo look)."""
+    _study(out, [("1 · single", dict(layers=1)), ("2 · layers", dict(layers=2)),
+                 ("3 · layers", dict(layers=3)), ("4 · layers", dict(layers=4))], elev, ext)
 
 
 def _fade_well(layer, well):
@@ -257,11 +288,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="also dump full-res PNGs of every concept/tone")
     ap.add_argument("--moon-study", action="store_true", help="ink moon back at a few ridge heights")
+    ap.add_argument("--ridge-study", action="store_true", help="single vs layered receding ridges")
     args = ap.parse_args()
     blc.OUT.mkdir(parents=True, exist_ok=True)
     elev, ext = blc.load_elev()
     if args.moon_study:                                    # no contours needed for concept A
         moon_study(elev, ext, blc.OUT / "cmp_moon_study.png")
+        return
+    if args.ridge_study:
+        ridge_study(elev, ext, blc.OUT / "cmp_ridge_study.png")
         return
     print("contours: loading (~140MB) ...")
     print(f"contours: {len(load_contours())} polylines")
