@@ -64,6 +64,30 @@ TONES = {
     "night": dict(bg=(12, 14, 21),    line=(228, 224, 210), faint=(120, 130, 150), moon=(232, 230, 214)),
 }
 
+# the deck number on the matte/handwritten side: tiny and quiet, tucked into the
+# lower-right corner — there when you look for it, silent when you don't
+NUM_MM = 2.3                     # digit height on the trim card
+NUM_MARGIN_MM = 4.0              # in from the trim edges (clear of the cut)
+NUM_ALPHA = 80                   # a whisper of the tone's faint colour
+
+
+def stamp_number(img, t, n):
+    """Stamp card number `n`, very small and subtle, in the lower-right of a
+    finished back. Scales with the image so studies and full-res match. Drawn
+    on an overlay: ImageDraw honours fill-alpha for lines/polygons but not for
+    text on an RGB image, so text has to composite to actually be faint."""
+    W, H = img.size
+    k = H / blc.TRIM_H
+    f = blc._font(max(10, round(blc._px(NUM_MM) * k)))
+    m = blc._px(NUM_MARGIN_MM) * k
+    ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(ov)
+    s = str(n)
+    bb = d.textbbox((0, 0), s, font=f)
+    d.text((W - m - (bb[2] - bb[0]), H - m - (bb[3] - bb[1])), s,
+           font=f, fill=(*t["faint"], NUM_ALPHA))
+    return Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
+
 
 # ---- projection (explicit bbox, so the zoomed concepts get their own window) --
 def project_ll(lines, bbox, W, H):
