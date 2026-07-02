@@ -128,12 +128,19 @@ def _moon(d, W, H, t, illum=1.0, wax=True):
 
 
 def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
-              spread=0.52, parallax=0.0, gamma=1.0, crest_blur=120, illum=1.0, wax=True):
+              spread=0.52, parallax=0.0, gamma=1.0, crest_blur=120, illum=1.0, wax=True,
+              tuck=0.0, near_fade=0.0):
     """A — Farallones skyline under a fine moon; the moon is FIXED and the ridge can
     drop (base -> 1.0) to open up sky. layers=1 is one clean silhouette; layers>1 stacks
     several DEM skylines into receding, atmospheric ridges (far crest high/pale/thin, near
     ridge low/dark/crisp) — the real layered view from the city. Tuning the layered look:
-      spread    vertical gap between receding ridges (x amp); bigger = less crowding
+      base      the NEAREST ridge's baseline (frac of H); SMALLER pushes the whole stack UP
+                toward the moon, opening more open field below to write in
+      spread    vertical gap between receding ridges (x amp); smaller = a tighter cluster
+      tuck      pull the NEAREST ridge up toward the group (0..1 of one gap), so the bottom
+                ridge sits tighter to the others instead of trailing low
+      near_fade thin/pale the near ridges (0..~0.3) so the bottom two read fainter — saves
+                ink and writing contrast, at some cost to the sense of depth
       parallax  horizontal stagger per layer (frac of W); shifts peaks apart so the ridges
                 don't all pile into one steep corner (the receding-ranges parallax)
       gamma     >1 rounds the crest / gentles the shoulder of the rise
@@ -157,11 +164,15 @@ def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
         lo, hi = float(crop.min()), float(crop.max())              # shared scale across layers
         bands = np.array_split(np.arange(crop.shape[0]), layers)   # latitude slabs = distinct ridges
         step = amp * spread
+        far_base = base - step * (layers - 1)                      # the farthest (top) baseline
         for i in range(layers):                                    # far (high, pale) -> near (low, dark)
             frac = i / (layers - 1)
             sky = _blur1d(crop[bands[i]].max(axis=0), br)
             n = ((sky - lo) / (hi - lo + 1e-6)) ** gamma
-            lb = base - (1 - frac) * step * (layers - 1)
+            descent = step * i                                     # how far this ridge sits below the top
+            if i == layers - 1:
+                descent -= tuck * step                             # tuck the nearest up toward the group
+            lb = far_base + descent
             ys = lb - n * amp
             dx = (frac - 0.5) * parallax * W                       # stagger peaks so they don't converge
             xsl = xs + dx
@@ -170,8 +181,9 @@ def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
                 pts = [(0.0, ys[0]), *pts]
             if pts[-1][0] < W:
                 pts = [*pts, (float(W), ys[-1])]
-            col = tuple(int(round(blc._lerp(b, l, 0.30 + 0.70 * frac))) for b, l in zip(t["bg"], t["line"]))
-            w = max(1, round(W / 440 * (0.5 + 0.75 * frac)))
+            prom = (0.30 + 0.70 * frac) * (1 - near_fade * frac)   # near_fade pales the bottom ridges
+            col = tuple(int(round(blc._lerp(b, l, prom))) for b, l in zip(t["bg"], t["line"]))
+            w = max(1, round(W / 440 * (0.5 + 0.75 * frac) * (1 - 0.5 * near_fade * frac)))
             d.polygon([(0, H), *pts, (W, H)], fill=(*t["bg"], 255))   # near ridge occludes those behind
             if i == layers - 1:                                       # whisper of ground under the nearest
                 d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 12))
@@ -198,22 +210,27 @@ def moon_study(elev, ext, out):
     _study(out, [(f"ridge base {b:.2f}", dict(base=b)) for b in (0.52, 0.60, 0.68, 0.76)], elev, ext)
 
 
+# the receding-ridge tuning chosen from the studies, reused everywhere. Base = David's
+# "gentlest" (e), then per his notes: pushed UP toward the moon (smaller base) for more
+# writing field, the cluster TIGHTENED (spread down + the nearest tucked up), and the
+# bottom ridges FADED a touch (ink + writing contrast) — at some cost to depth, which he
+# accepts. "Careful to save ink but ESPECIALLY to save space to write."
+RIDGE_LAYERED = dict(layers=3, spread=0.60, parallax=0.15, amp=0.13, base=0.66,
+                     crest_blur=64, gamma=1.5, tuck=0.5, near_fade=0.22)
+
+
 def ridge_study(elev, ext, out):
-    """3 receding ridges (the chosen look), tuned toward the photo: pull the layers apart
-    so they stop converging on the left, and gentle the slope. Left = today; each step adds
-    one lever, so the rightmost is spread + parallax + a lower, rounder, less-steep ridge."""
-    base3 = dict(layers=3)
+    """Refine the chosen gentlest ridge per David's notes. Left = plain gentlest (e); then
+    each step tightens the cluster / pushes it up toward the moon / fades the bottom two, so
+    the rightmost frees the most field to write in. `chosen` = the current RIDGE_LAYERED."""
+    e = dict(layers=3, spread=0.90, parallax=0.15, amp=0.13, base=0.75, crest_blur=64, gamma=1.5)
     _study(out, [
-        ("a · today",       dict(**base3)),
-        ("b · +spread",     dict(**base3, spread=0.82)),
-        ("c · +parallax",   dict(**base3, spread=0.82, parallax=0.11)),
-        ("d · gentler",     dict(**base3, spread=0.82, parallax=0.11, amp=0.15, base=0.72, crest_blur=80, gamma=1.3)),
-        ("e · gentlest",    dict(**base3, spread=0.90, parallax=0.15, amp=0.13, base=0.75, crest_blur=64, gamma=1.5)),
+        ("a · gentlest (e)",  dict(e)),
+        ("b · tuck+tight",    dict(e, spread=0.60, tuck=0.5)),
+        ("c · +push up",      dict(e, spread=0.60, tuck=0.5, base=0.66)),
+        ("d · chosen",        dict(RIDGE_LAYERED)),
+        ("e · fainter/higher",dict(RIDGE_LAYERED, base=0.60, tuck=0.7, near_fade=0.32)),
     ], elev, ext)
-
-
-# the receding-ridge tuning chosen from ridge_study (the photo look), reused everywhere
-RIDGE_LAYERED = dict(layers=3, spread=0.82, parallax=0.11, amp=0.15, base=0.72, crest_blur=80, gamma=1.3)
 
 PHASES = [                                                  # a lunar month across the deck
     ("new",              0.03, True),
