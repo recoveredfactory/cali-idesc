@@ -38,7 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 # ---- paths -----------------------------------------------------------------
 HERE = Path(__file__).resolve().parent
@@ -72,19 +72,32 @@ RAMP = [(850, 226, 222, 205), (1100, 176, 190, 150), (1500, 120, 150, 108),
         (2000, 82, 120, 84), (2600, 56, 96, 70), (3200, 40, 74, 58),
         (4200, 34, 62, 52)]
 
-# ---- the cycle: (label, azimuth, altitude, ambient_rgb, direct_rgb) --------
-# light given as multipliers of albedo. opens on the moon, returns to night.
+# ---- the cycle -------------------------------------------------------------
+# Each stop carries its own LIGHT (sun/moon az+alt, ambient + direct as albedo
+# multipliers) AND its own STREET character (colour, ink = how present, glow =
+# halo strength). The streets trace a full day: silvery-yellow city lights at
+# night -> rust at dawn -> teal-grey through the day -> gold at dusk -> back to
+# night. Opens on the moon, returns to her.
+#   amb/dir  = RGB multipliers of albedo (cool skylight vs warm sun / cool moon)
+#   street   = base line colour; ink scales presence; glow adds a blurred halo
 CYCLE = [
-    ("moon",      180, 52, (0.30, 0.37, 0.52), (0.48, 0.58, 0.82)),
-    ("late",      250, 24, (0.26, 0.32, 0.46), (0.42, 0.52, 0.80)),
-    ("dawn",       82, 12, (0.42, 0.44, 0.56), (1.20, 0.82, 0.54)),
-    ("morning",   118, 34, (0.50, 0.52, 0.55), (1.16, 1.00, 0.76)),
-    ("midday",    176, 58, (0.56, 0.58, 0.58), (0.92, 0.92, 0.86)),
-    ("afternoon", 238, 34, (0.52, 0.50, 0.52), (1.22, 0.96, 0.66)),
-    ("dusk",      288, 12, (0.40, 0.36, 0.46), (1.38, 0.72, 0.46)),
-    ("nightfall", 312, 18, (0.34, 0.34, 0.48), (0.72, 0.60, 0.86)),
+    dict(label="moon",      az=180, alt=52, amb=(0.14, 0.17, 0.23), dir=(0.36, 0.40, 0.49),
+         street=(232, 228, 196), ink=0.90, glow=1.00),   # dim silver, streets silvery-yellow glow
+    dict(label="late",      az=250, alt=22, amb=(0.13, 0.16, 0.22), dir=(0.32, 0.36, 0.44),
+         street=(232, 228, 196), ink=0.48, glow=0.45),   # dimmer, same shade, less street light
+    dict(label="dawn",      az= 82, alt=12, amb=(0.34, 0.34, 0.42), dir=(1.06, 0.74, 0.52),
+         street=(158, 128, 114), ink=0.80, glow=0.00),   # first light warm, streets rusty-grey, matte
+    dict(label="morning",   az=118, alt=34, amb=(0.48, 0.50, 0.52), dir=(0.86, 0.86, 0.82),
+         street=(120, 140, 136), ink=0.72, glow=0.00),   # lower-contrast day base, rust -> teal-grey
+    dict(label="midday",    az=196, alt=50, amb=(0.42, 0.43, 0.44), dir=(0.72, 0.73, 0.72),
+         street=( 96, 124, 122), ink=0.72, glow=0.00),   # neutral web-map look, not blown out
+    dict(label="afternoon", az=238, alt=34, amb=(0.52, 0.50, 0.52), dir=(1.22, 0.96, 0.66),
+         street=( 26, 140, 136), ink=0.90, glow=0.00),   # "right on" — warm low sun, day teal
+    dict(label="dusk",      az=288, alt=12, amb=(0.30, 0.27, 0.34), dir=(1.32, 0.96, 0.50),
+         street=(236, 200, 140), ink=0.92, glow=0.85),   # golden + richer, streets going gold/glow
+    dict(label="nightfall", az=300, alt=16, amb=(0.22, 0.21, 0.26), dir=(0.66, 0.50, 0.42),
+         street=(176, 138, 124), ink=0.70, glow=0.38),   # dawn, but at night — rusty-grey, faint glow
 ]
-NIGHT = {"moon", "late", "nightfall"}
 
 # ---- streets ---------------------------------------------------------------
 ST_ARTERIAL = {"Via Arteria Principal", "Via Interegional"}   # sic: dataset spelling
@@ -223,29 +236,49 @@ def project(lines, shp):
             for ln in lines]
 
 
-def draw_grid(card, streets_px, night, scale=1.0):
-    ov = Image.new("RGBA", card.size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(ov)
-    if night:
-        cols = {"local": (78, 200, 194, 60), "collector": (110, 216, 208, 110),
-                "arterial": (150, 232, 222, 185)}
-    else:
-        cols = {"local": (34, 150, 146, 72), "collector": (26, 140, 136, 122),
-                "arterial": (18, 128, 124, 195)}
+# tier presence: arterials read strongest, locals faintest (alpha at ink=1)
+ST_ALPHA = {"local": 60, "collector": 120, "arterial": 200}
+
+
+def draw_grid(card, streets_px, street_rgb, ink, glow, scale=1.0):
+    """Draw the city grid in a single per-phase colour. `ink` scales how present
+    the streets are; `glow` (>0) lays a blurred halo underneath so night/dusk
+    lights actually glow instead of reading as flat lines."""
     wid = {"local": max(1, round(1 * scale)), "collector": max(1, round(2 * scale)),
            "arterial": max(1, round(3 * scale))}
+    base = card.convert("RGBA")
+
+    if glow > 0:                                     # blurred halo, under the crisp lines
+        halo = Image.new("RGBA", card.size, (0, 0, 0, 0))
+        hd = ImageDraw.Draw(halo)
+        for tier in ("local", "collector", "arterial"):
+            a = int(ST_ALPHA[tier] * ink * glow * 0.55)
+            if a <= 0:
+                continue
+            w = wid[tier] * 3 + 2
+            for pts in streets_px[tier]:
+                if len(pts) >= 2:
+                    hd.line(pts, fill=(*street_rgb, a), width=w, joint="curve")
+        halo = halo.filter(ImageFilter.GaussianBlur(radius=max(1.5, 3.5 * scale)))
+        base = Image.alpha_composite(base, halo)
+
+    ov = Image.new("RGBA", card.size, (0, 0, 0, 0))  # crisp lines on top
+    d = ImageDraw.Draw(ov)
     for tier in ("local", "collector", "arterial"):
+        a = min(255, int(ST_ALPHA[tier] * ink))
+        if a <= 0:
+            continue
         for pts in streets_px[tier]:
             if len(pts) >= 2:
-                d.line(pts, fill=cols[tier], width=wid[tier], joint="curve")
-    return Image.alpha_composite(card.convert("RGBA"), ov).convert("RGB")
+                d.line(pts, fill=(*street_rgb, a), width=wid[tier], joint="curve")
+    return Image.alpha_composite(base, ov).convert("RGB")
 
 
 def render_card(win, px_m, streets_px, spec, to_trim=True):
-    lab, az, alt, amb, dr = spec
     scale = win.shape[0] / TRIM_H            # street widths tuned in trim px
-    card = Image.fromarray(relief(win, px_m, az, alt, amb, dr), "RGB")
-    card = draw_grid(card, streets_px, lab in NIGHT, scale=scale)
+    card = Image.fromarray(
+        relief(win, px_m, spec["az"], spec["alt"], spec["amb"], spec["dir"]), "RGB")
+    card = draw_grid(card, streets_px, spec["street"], spec["ink"], spec["glow"], scale=scale)
     if to_trim:
         card = card.resize((TRIM_W, TRIM_H), Image.LANCZOS)
     return card
@@ -257,6 +290,36 @@ def _font(sz):
         return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", sz)
     except OSError:
         return ImageFont.load_default()
+
+
+def _crop_marks(d, x, y, w, h, ln=28, gap=8, col=(150, 150, 150)):
+    """L-ticks just outside each trim corner, so a card can be cut to size."""
+    for cx, cy, sx, sy in ((x, y, -1, -1), (x + w, y, 1, -1),
+                           (x, y + h, -1, 1), (x + w, y + h, 1, 1)):
+        d.line([(cx + sx * gap, cy), (cx + sx * (gap + ln), cy)], fill=col, width=2)
+        d.line([(cx, cy + sy * gap), (cx, cy + sy * (gap + ln))], fill=col, width=2)
+
+
+def build_proof(cards, page_mm=(210.0, 297.0), cols=2, rows=2):
+    """True-size (70x120mm @300dpi) cards on printable pages with crop marks, so
+    the colours/darkness can be checked on actual paper. Returns a list of pages."""
+    pw, ph = _px(page_mm[0]), _px(page_mm[1])
+    per = cols * rows
+    gx = (pw - cols * TRIM_W) // (cols + 1)
+    gy = (ph - rows * TRIM_H) // (rows + 1)
+    f = _font(20)
+    pages = []
+    for p0 in range(0, len(cards), per):
+        page = Image.new("RGB", (pw, ph), (255, 255, 255))
+        d = ImageDraw.Draw(page)
+        for j, (lab, img) in enumerate(cards[p0:p0 + per]):
+            r, c = divmod(j, cols)
+            x, y = gx + c * (TRIM_W + gx), gy + r * (TRIM_H + gy)
+            page.paste(img, (x, y))
+            _crop_marks(d, x, y, TRIM_W, TRIM_H)
+            d.text((x, y - 26), lab, fill=(140, 140, 140), font=f)
+        pages.append(page)
+    return pages
 
 
 def contact_sheet(cards, cols=4, w=340):
@@ -278,6 +341,7 @@ def contact_sheet(cards, cols=4, w=340):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="render every card at print res")
+    ap.add_argument("--proof", action="store_true", help="true-size proof pages + PDF for a print test")
     ap.add_argument("--z", type=int, default=Z, help="terrarium tile zoom")
     args = ap.parse_args()
 
@@ -290,7 +354,7 @@ def main():
     px_m = (mx(ce) - mx(cw)) / win.shape[1] * math.cos(math.radians((cn + cs) / 2))
     streets_px = {k: project(v, win.shape) for k, v in load_streets().items()}
 
-    cards = [(spec[0], render_card(win, px_m, streets_px, spec)) for spec in CYCLE]
+    cards = [(spec["label"], render_card(win, px_m, streets_px, spec)) for spec in CYCLE]
     contact_sheet(cards).save(OUT / "cmp_final.png")
     print(f"-> cmp_final.png ({len(cards)} cards)")
 
@@ -304,6 +368,14 @@ def main():
         for i, (lab, img) in enumerate(cards, 1):
             img.save(deck / f"card_{i:02d}_{lab}.png")
         print(f"-> {len(cards)} full cards in deck_light/")
+
+    if args.proof:
+        pages = build_proof(cards)
+        pages[0].save(OUT / "proof_deck.pdf", "PDF", resolution=DPI,
+                      save_all=True, append_images=pages[1:])
+        for i, pg in enumerate(pages, 1):
+            pg.save(OUT / f"proof_p{i}.png")
+        print(f"-> proof_deck.pdf + {len(pages)} proof page PNGs (print at 100%)")
 
 
 if __name__ == "__main__":
