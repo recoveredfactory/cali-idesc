@@ -49,17 +49,17 @@ OUT = Path("/mnt/c/Users/david/OneDrive/Pictures/Screenshots/cali-cards")
 
 # ---- print spec ------------------------------------------------------------
 CARD_MM = (70.0, 120.0)          # w x h, portrait
-DPI = 300
+DPI = 600                         # inkjet resolves this; the earlier fuzziness was screen-only
 def _px(mm): return round(mm / 25.4 * DPI)
 TRIM_W, TRIM_H = _px(CARD_MM[0]), _px(CARD_MM[1])
 
 # ---- geography -------------------------------------------------------------
-Z = 13                            # terrarium tile zoom (~19 m/px here)
+Z = 14                            # terrarium tile zoom (~9.5 m/px here) — finer for print
 FETCH = (-76.72, -76.40, 3.64, 3.16)          # W,E,N,S bbox to fetch (Farallones+city)
 # portrait card window (lon/lat) ~ 70x120 aspect; Farallones fill left, city right
 WINDOW = (-76.655, -76.445, 3.58, 3.22)       # CW, CE, CN, CS
 ZF = 1.45                         # vertical exaggeration (gentler = less intense)
-BLUR_SIGMA = 2.2                  # smooth the razor-sharp z13 DEM toward the web look
+BLUR_SIGMA = 1.0                  # just kill terrarium stair-stepping; keep detail for print
 # soften the illumination so it reads subtle, not posterized:
 AMB_LIFT = 0.08                   # lift shadows
 DIR_GAIN = 0.78                   # pull the direct light back
@@ -86,7 +86,7 @@ CYCLE = [
     dict(label="late",      az=250, alt=22, amb=(0.13, 0.16, 0.22), dir=(0.32, 0.36, 0.44),
          street=(232, 228, 196), ink=0.34, glow=0.32),   # dimmer, same shade, less street light
     dict(label="dawn",      az= 82, alt=12, amb=(0.50, 0.48, 0.48), dir=(1.02, 0.84, 0.66),
-         street=(146, 112,  98), ink=0.95, glow=0.00),   # creamy first light, streets clearly rusty-grey
+         street=( 96,  64,  50), ink=1.00, glow=0.00),   # creamy first light, deep rust streets for contrast
     dict(label="morning",   az=118, alt=34, amb=(0.48, 0.50, 0.52), dir=(0.86, 0.86, 0.82),
          street=(120, 140, 136), ink=0.72, glow=0.00),   # lower-contrast day base, rust -> teal-grey
     dict(label="midday",    az=196, alt=50, amb=(0.42, 0.43, 0.44), dir=(0.72, 0.73, 0.72),
@@ -94,7 +94,7 @@ CYCLE = [
     dict(label="afternoon", az=238, alt=34, amb=(0.52, 0.50, 0.52), dir=(1.22, 0.96, 0.66),
          street=( 92, 124, 120), ink=0.90, glow=0.00),   # "right on" — warm low sun, greyed-teal streets
     dict(label="dusk",      az=288, alt=12, amb=(0.30, 0.27, 0.34), dir=(1.32, 0.96, 0.50),
-         street=(236, 200, 140), ink=0.50, glow=0.45),   # golden + richer, streets a hint of gold glow
+         street=(248, 224, 164), ink=0.60, glow=0.30),   # golden + richer; brighter gold lights, crisper
     dict(label="nightfall", az=300, alt=16, amb=(0.18, 0.19, 0.25), dir=(0.50, 0.52, 0.60),
          street=(208, 200, 178), ink=0.45, glow=0.40),   # dusk fading to night — cooling toward the moon
 ]
@@ -238,14 +238,17 @@ def project(lines, shp):
 
 # tier presence: arterials read strongest, locals faintest (alpha at ink=1)
 ST_ALPHA = {"local": 60, "collector": 120, "arterial": 200}
+# physical stroke widths (mm on the trim card) — DPI-independent, so raising DPI
+# sharpens the streets instead of halving their width
+ST_W_MM = {"local": 0.085, "collector": 0.17, "arterial": 0.255}
+GLOW_MM = 0.30                    # halo blur radius, in mm on the trim card
 
 
 def draw_grid(card, streets_px, street_rgb, ink, glow, scale=1.0):
     """Draw the city grid in a single per-phase colour. `ink` scales how present
     the streets are; `glow` (>0) lays a blurred halo underneath so night/dusk
     lights actually glow instead of reading as flat lines."""
-    wid = {"local": max(1, round(1 * scale)), "collector": max(1, round(2 * scale)),
-           "arterial": max(1, round(3 * scale))}
+    wid = {t: max(1, round(_px(ST_W_MM[t]) * scale)) for t in ST_W_MM}
     base = card.convert("RGBA")
 
     if glow > 0:                                     # blurred halo, under the crisp lines
@@ -259,7 +262,7 @@ def draw_grid(card, streets_px, street_rgb, ink, glow, scale=1.0):
             for pts in streets_px[tier]:
                 if len(pts) >= 2:
                     hd.line(pts, fill=(*street_rgb, a), width=w, joint="curve")
-        halo = halo.filter(ImageFilter.GaussianBlur(radius=max(1.5, 3.5 * scale)))
+        halo = halo.filter(ImageFilter.GaussianBlur(radius=max(2.0, _px(GLOW_MM) * scale)))
         base = Image.alpha_composite(base, halo)
 
     ov = Image.new("RGBA", card.size, (0, 0, 0, 0))  # crisp lines on top
