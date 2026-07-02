@@ -82,23 +82,27 @@ RAMP = [(850, 226, 222, 205), (1100, 176, 190, 150), (1500, 120, 150, 108),
 # night. Opens on the moon, returns to her.
 #   amb/dir  = RGB multipliers of albedo (cool skylight vs warm sun / cool moon)
 #   street   = base line colour; ink scales presence; glow adds a blurred halo
+#   water    = per-phase river colour; day = vivid cyan-blue, night = inky indigo
+#   desat    = pull the GROUND toward grey before lighting (high at night -> inky
+#              monochrome, not grey-green); lift = shadow floor (low = obscure).
+#              Both default to the daytime globals (DESAT / AMB_LIFT) when absent.
 CYCLE = [
-    dict(label="moon",      az=180, alt=52, amb=(0.100, 0.130, 0.180), dir=(0.30, 0.34, 0.44),
-         street=(232, 228, 196), ink=0.40, glow=0.42, tiers=(0.30, 0.75, 1.0), water=( 66,  92, 124)),   # darker night; mostly big roads
-    dict(label="late",      az=250, alt=22, amb=(0.075, 0.095, 0.140), dir=(0.26, 0.30, 0.40),
-         street=(232, 228, 196), ink=0.24, glow=0.24, tiers=(0.10, 0.52, 1.0), water=( 48,  68,  98)),   # deeper; small roads nearly gone
+    dict(label="moon",      az=180, alt=52, amb=(0.078, 0.104, 0.156), dir=(0.24, 0.28, 0.42), desat=0.72, lift=0.028,
+         street=(226, 222, 194), ink=0.40, glow=0.42, tiers=(0.30, 0.75, 1.0), water=( 34,  52,  86)),   # inky moonlit night; mostly big roads
+    dict(label="late",      az=250, alt=22, amb=(0.050, 0.066, 0.108), dir=(0.19, 0.23, 0.36), desat=0.80, lift=0.016,
+         street=(220, 214, 188), ink=0.22, glow=0.22, tiers=(0.10, 0.52, 1.0), water=( 22,  36,  64)),   # deepest, most obscure; small roads gone
     dict(label="dawn",      az= 82, alt=12, amb=(0.500, 0.480, 0.480), dir=(1.02, 0.84, 0.66),
-         street=( 96,  64,  50), ink=1.00, glow=0.00, water=(104, 122, 144)),   # creamy first light, deep rust streets
+         street=(118,  82,  62), ink=1.00, glow=0.00, water=( 96, 116, 142)),   # creamy first light, rust streets
     dict(label="morning",   az=118, alt=34, amb=(0.500, 0.510, 0.470), dir=(0.88, 0.87, 0.80),
-         street=(108, 100,  90), ink=0.82, glow=0.00, water=( 92, 138, 156)),   # fresh green day, warm-grey streets
+         street=(116, 106,  94), ink=0.82, glow=0.00, water=( 84, 142, 166)),   # fresh green day, warm-grey streets
     dict(label="midday",    az=196, alt=50, amb=(0.440, 0.430, 0.400), dir=(0.75, 0.73, 0.69),
-         street=( 98,  92,  84), ink=0.82, glow=0.00, water=(104, 156, 176)),   # bright neutral green, warm-grey streets
+         street=(108, 100,  90), ink=0.82, glow=0.00, water=( 92, 170, 198)),   # bright neutral green; vivid river
     dict(label="afternoon", az=238, alt=34, amb=(0.530, 0.500, 0.470), dir=(1.22, 0.96, 0.66),
-         street=(122, 112,  98), ink=0.90, glow=0.00, water=( 96, 144, 160)),   # golden-green, warm-grey streets
+         street=(126, 114, 100), ink=0.90, glow=0.00, water=( 88, 152, 176)),   # golden-green, warm-grey streets
     dict(label="dusk",      az=288, alt=12, amb=(0.300, 0.270, 0.340), dir=(1.32, 0.96, 0.50),
-         street=(248, 224, 164), ink=0.60, glow=0.30, water=(104, 120, 138)),   # golden + richer; cool water contrast
-    dict(label="nightfall", az=300, alt=16, amb=(0.180, 0.190, 0.250), dir=(0.50, 0.52, 0.60),
-         street=(208, 200, 178), ink=0.45, glow=0.40, tiers=(0.50, 0.90, 1.0), water=( 70,  92, 120)),   # dusk fading toward the moon
+         street=(232, 206, 150), ink=0.60, glow=0.30, water=( 98, 112, 140)),   # golden + richer; cool water contrast
+    dict(label="nightfall", az=300, alt=16, amb=(0.150, 0.160, 0.222), dir=(0.44, 0.47, 0.58), desat=0.52, lift=0.052,
+         street=(206, 198, 178), ink=0.45, glow=0.40, tiers=(0.50, 0.90, 1.0), water=( 50,  70, 102)),   # dusk fading toward the moon
 ]
 
 
@@ -109,7 +113,6 @@ CYCLE = [
 # sweep, instead of cross-fading two fixed renders (which just ghosts).
 def _lerp(a, b, t): return a + (b - a) * t
 def _lerp_rgb(a, b, t): return tuple(_lerp(x, y, t) for x, y in zip(a, b))
-def _lerp_int(a, b, t): return tuple(int(round(_lerp(x, y, t))) for x, y in zip(a, b))
 def _lerp_ang(a, b, t):
     """Interpolate an azimuth along the SHORTEST arc (so late->dawn swings the
     short way across the sky, not a full spin)."""
@@ -118,17 +121,54 @@ def _lerp_ang(a, b, t):
 def _ease(t): return t * t * (3.0 - 2.0 * t)      # smoothstep: settle onto each phase
 
 
+# ---- OKLab colour interpolation (perceptual) -------------------------------
+# Blending the street/water colours in raw sRGB drags the in-between frames
+# through muddy, low-chroma midtones (a pale silver -> deep rust road passes
+# through dull tan). OKLab is perceptually uniform, so lerping there keeps the
+# path clean and the lightness even — the light "moves" without a mud phase.
+def _s2l(c):                                       # sRGB 0..255 -> linear 0..1
+    c /= 255.0
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+def _l2s(c):                                       # linear 0..1 -> sRGB int 0..255
+    c = 0.0 if c < 0.0 else (1.0 if c > 1.0 else c)
+    v = c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+    return int(round(v * 255.0))
+def _cbrt(x): return math.copysign(abs(x) ** (1.0 / 3.0), x)
+def _rgb_to_oklab(rgb):
+    r, g, b = (_s2l(v) for v in rgb)
+    l = _cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+    m = _cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+    s = _cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+    return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+def _oklab_to_rgb(lab):
+    L, A, B = lab
+    l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3
+    m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3
+    s = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3
+    return (_l2s(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+            _l2s(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+            _l2s(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s))
+def _lerp_lab(c0, c1, t):
+    a, b = _rgb_to_oklab(c0), _rgb_to_oklab(c1)
+    return _oklab_to_rgb(tuple(_lerp(x, y, t) for x, y in zip(a, b)))
+
+
 def interp_spec(k0, k1, t):
-    """Blend two cycle keyframes at t in [0,1]. Light multipliers (amb/dir/tiers)
-    stay float; colours that go to PIL (street/water) round to int."""
+    """Blend two cycle keyframes at t in [0,1]. Light multipliers (amb/dir/tiers/
+    desat/lift) stay float; the paint colours (street/water) cross-fade in OKLab
+    so the moving light never dips through a muddy midtone."""
     d0 = k0.get("tiers", (1.0, 1.0, 1.0)); d1 = k1.get("tiers", (1.0, 1.0, 1.0))
     return dict(
         label=k0["label"] if t < 0.5 else k1["label"],
         az=_lerp_ang(k0["az"], k1["az"], t), alt=_lerp(k0["alt"], k1["alt"], t),
         amb=_lerp_rgb(k0["amb"], k1["amb"], t), dir=_lerp_rgb(k0["dir"], k1["dir"], t),
-        street=_lerp_int(k0["street"], k1["street"], t), water=_lerp_int(k0["water"], k1["water"], t),
+        street=_lerp_lab(k0["street"], k1["street"], t), water=_lerp_lab(k0["water"], k1["water"], t),
         ink=_lerp(k0["ink"], k1["ink"], t), glow=_lerp(k0["glow"], k1["glow"], t),
         tiers=_lerp_rgb(d0, d1, t),
+        desat=_lerp(k0.get("desat", DESAT), k1.get("desat", DESAT), t),
+        lift=_lerp(k0.get("lift", AMB_LIFT), k1.get("lift", AMB_LIFT), t),
     )
 
 
@@ -275,13 +315,18 @@ def soft_clip(v, knee=205.0):
     return np.clip(v, 0, 255)
 
 
-def relief(win, px_m, az, alt, ambient, direct):
+def relief(win, px_m, az, alt, ambient, direct, lift=AMB_LIFT, desat=DESAT):
+    """`desat` pulls the GROUND toward grey BEFORE the light hits it, so at night
+    (bluish moonlight, desat high) the green collapses and the terrain reads as an
+    inky monochrome blue rather than a grey-green overcast. `lift` sets how far the
+    shadows lift — low at night keeps them crushed and obscure."""
     hs = hillshade(win, az, alt, px_m)[..., None]
-    amb = np.array(ambient, np.float32)[None, None] + AMB_LIFT
+    amb = np.array(ambient, np.float32)[None, None] + lift
     dr = np.array(direct, np.float32)[None, None] * DIR_GAIN
-    rgb = albedo(win) * (amb + dr * hs)
-    if DESAT > 0:                                   # ease off the intensity
-        rgb = rgb * (1 - DESAT) + rgb.mean(-1, keepdims=True) * DESAT
+    alb = albedo(win)
+    if desat > 0:                                   # neutralise the ground first
+        alb = alb * (1 - desat) + alb.mean(-1, keepdims=True) * desat
+    rgb = alb * (amb + dr * hs)
     return soft_clip(rgb).astype(np.uint8)
 
 
@@ -465,7 +510,8 @@ def prep_scene(z=Z, target_h=None):
 def render_card(win, px_m, streets_px, water_px, spec, to_trim=True, paper="screen"):
     scale = win.shape[0] / TRIM_H            # street widths tuned in trim px
     card = Image.fromarray(
-        relief(win, px_m, spec["az"], spec["alt"], spec["amb"], spec["dir"]), "RGB")
+        relief(win, px_m, spec["az"], spec["alt"], spec["amb"], spec["dir"],
+               lift=spec.get("lift", AMB_LIFT), desat=spec.get("desat", DESAT)), "RGB")
     card = draw_water(card, water_px, spec["water"], scale=scale)      # water under the streets
     card = draw_grid(card, streets_px, spec["street"], spec["ink"], spec["glow"],
                      tiers=spec.get("tiers", (1.0, 1.0, 1.0)), scale=scale)
