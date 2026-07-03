@@ -64,11 +64,28 @@ TONES = {
     "night": dict(bg=(12, 14, 21),    line=(228, 224, 210), faint=(120, 130, 150), moon=(232, 230, 214)),
 }
 
-# the deck number on the matte/handwritten side: tiny and quiet, tucked into the
-# lower-right corner — there when you look for it, silent when you don't
-NUM_MM = 2.3                     # digit height on the trim card
-NUM_MARGIN_MM = 4.0              # in from the trim edges (clear of the cut)
-NUM_ALPHA = 80                   # a whisper of the tone's faint colour
+# the deck number on the matte/handwritten side: quiet but plainly legible,
+# tucked into the lower-right corner. The first print (2.3mm @ alpha 80) was
+# "way too small and subtle" — matte paper eats faint ink.
+NUM_MM = 4.2                     # digit height on the trim card
+NUM_MARGIN_MM = 4.5              # in from the trim edges (clear of the cut)
+NUM_ALPHA = 175                  # the tone's faint colour, most of the way in
+
+
+# per-card ink temperature: the back's line colour leans toward its FRONT's
+# light — cool blue-slate for the night cards, warm sepia through the day.
+# Subtle: the value stays near the neutral ink; only the temperature moves.
+INK_COOL = dict(line=(50, 56, 76), faint=(106, 114, 134), moon=(60, 66, 84))
+INK_WARM = dict(line=(90, 64, 44), faint=(134, 114, 96), moon=(102, 74, 52))
+
+
+def ink_tone(warmth):
+    """The `ink` tone tinted cool<->warm (OKLab, warmth in [0,1]) to match a
+    front card. bg stays the shared cream — only the drawn lines shift."""
+    t = dict(TONES["ink"])
+    for k in ("line", "faint", "moon"):
+        t[k] = blc._lerp_lab(INK_COOL[k], INK_WARM[k], warmth)
+    return t
 
 
 def stamp_number(img, t, n):
@@ -224,9 +241,12 @@ def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
                 pts = [(0.0, ys[0]), *pts]
             if pts[-1][0] < W:
                 pts = [*pts, (float(W), ys[-1])]
-            prom = (0.30 + 0.70 * frac) * (1 - near_fade * frac)   # near_fade pales the bottom ridges
+            # depth = TONE: a wide prominence ladder (far pale/thin -> near dark/
+            # thick). The first print read too even — the ladder is now stretched
+            # at both ends so the recession actually registers on paper.
+            prom = (0.22 + 0.78 * frac) * (1 - near_fade * frac)   # near_fade pales the bottom ridges
             col = tuple(int(round(blc._lerp(b, l, prom))) for b, l in zip(t["bg"], t["line"]))
-            w = max(1, round(W / 440 * (0.5 + 0.75 * frac) * (1 - 0.5 * near_fade * frac)))
+            w = max(1, round(W / 440 * (0.45 + 0.95 * frac) * (1 - 0.5 * near_fade * frac)))
             d.polygon([(0, H), *pts, (W, H)], fill=(*t["bg"], 255))   # near ridge occludes those behind
             if i == layers - 1:                                       # whisper of ground under the nearest
                 d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 12))
@@ -258,8 +278,10 @@ def moon_study(elev, ext, out):
 # down), and — key — the FAINT far crest was flying too high, so far_gentle/far_smooth make it a
 # soft low arc. Ridges up near the (now slightly smaller) moon, open field below to write in.
 RIDGE_LAYERED = dict(layers=3, spread=0.55, parallax=0.0, amp=0.13, base=0.46,
-                     crest_blur=70, gamma=1.0, tuck=0.35, near_fade=0.32,
+                     crest_blur=70, gamma=1.0, tuck=0.35, near_fade=0.15,
                      far_gentle=0.5, far_smooth=1.0)
+# near_fade was 0.32 ("fainter") — the print showed the layering too even, so the
+# near ridge keeps more of its ink now and the prom ladder above is stretched.
 
 
 def ridge_study(elev, ext, out):
@@ -273,6 +295,25 @@ def ridge_study(elev, ext, out):
         ("d · less faint",    dict(RIDGE_LAYERED, near_fade=0.18)),
         ("e · more depth",    dict(RIDGE_LAYERED, spread=0.72, tuck=0.2, near_fade=0.16, far_gentle=0.4)),
     ], elev, ext)
+
+def warmth_study(elev, ext, out):
+    """The tinted ink back across the temperature range (night -> day), with the
+    new deeper layering and the (bigger) card number — one look at all three
+    matte-side tweaks."""
+    th_h = 1200; th_w = round(th_h * blc.TRIM_W / blc.TRIM_H)
+    pad = 16; f = blc._font(22)
+    panels = [("cool 0.02 (moon)", 0.02, 1), ("0.30", 0.30, 3), ("0.60 (midday)", 0.60, 5),
+              ("0.85 (afternoon)", 0.85, 6), ("warm 0.95 (dusk)", 0.95, 7)]
+    W = len(panels) * (th_w + pad) + pad; Ht = th_h + 2 * pad + 34
+    s = Image.new("RGB", (W, Ht), (30, 30, 34)); d = ImageDraw.Draw(s)
+    for i, (lab, warmth, num) in enumerate(panels):
+        t = ink_tone(warmth)
+        im = back_moon(th_w, th_h, t, elev, ext, **RIDGE_LAYERED)
+        im = stamp_number(im, t, num)
+        x0 = pad + i * (th_w + pad); s.paste(im, (x0, pad))
+        d.text((x0 + 4, pad + th_h + 5), lab, fill=(215, 215, 215), font=f)
+    s.save(out); print("->", out)
+
 
 PHASES = [                                                  # a lunar month across the deck
     ("new",              0.03, True),
@@ -403,6 +444,7 @@ def main():
     ap.add_argument("--moon-study", action="store_true", help="ink moon back at a few ridge heights")
     ap.add_argument("--ridge-study", action="store_true", help="tune the 3 receding ridges toward the photo")
     ap.add_argument("--phase-study", action="store_true", help="the moon through its phases over the ridge")
+    ap.add_argument("--warmth-study", action="store_true", help="the tinted ink back, cool night -> warm day")
     ap.add_argument("--layered-back", action="store_true", help="full-res chosen layered back (both tones)")
     args = ap.parse_args()
     blc.OUT.mkdir(parents=True, exist_ok=True)
@@ -415,6 +457,9 @@ def main():
         return
     if args.phase_study:
         phase_study(elev, ext, blc.OUT / "cmp_phase_study.png")
+        return
+    if args.warmth_study:
+        warmth_study(elev, ext, blc.OUT / "cmp_warmth_study.png")
         return
     if args.layered_back:                                  # full-res chosen back (full moon), both tones
         for tone in TONES:

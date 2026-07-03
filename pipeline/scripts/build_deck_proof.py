@@ -34,6 +34,11 @@ _spec = importlib.util.spec_from_file_location("bcb", HERE / "build_card_back.py
 bcb = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(bcb)
 blc = bcb.blc                     # the one shared build_light_cards instance (format lives here)
 
+# per-card back-line temperature (0 = coolest night ink, 1 = warmest day sepia),
+# tracking the FRONT's light so each back quietly matches its card
+WARMTH = dict(moon=0.02, late=0.05, dawn=0.60, morning=0.55, midday=0.60,
+              afternoon=0.85, dusk=0.95, nightfall=0.12)
+
 
 def parse_cards(s):
     """'pre-midday' | 'all' | comma list of 1-based numbers, ranges, labels."""
@@ -110,11 +115,12 @@ def main():
           f"paper={args.paper}/{args.back_paper}")
     elev, ext = blc.load_elev()                            # backs read the raw DEM mosaic
     win, px_m, streets_px, water_px = blc.prep_scene()
-    t = bcb.TONES[args.tone]
 
     items = []
     for n in nums:
         spec = blc.CYCLE[n - 1]
+        t = (bcb.ink_tone(WARMTH[spec["label"]]) if args.tone == "ink"
+             else bcb.TONES[args.tone])                    # ink backs track the front's warmth
         phase_lab, illum, wax = bcb.PHASES[(n - 1) % len(bcb.PHASES)]
         print(f"  card {n} · front {spec['label']} · back {phase_lab} ...")
         front = blc.render_card(win, px_m, streets_px, water_px, spec, paper=args.paper)
