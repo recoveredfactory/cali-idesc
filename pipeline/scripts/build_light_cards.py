@@ -100,11 +100,11 @@ CYCLE = [
     dict(label="dawn",      az= 82, alt=12, amb=(0.500, 0.480, 0.480), dir=(1.02, 0.84, 0.66),
          street=(232, 208, 160), ink=0.60, glow=0.26, case=0.10, tiers=(0.60, 0.90, 1.0), water=( 96, 116, 142)),   # the lights LINGER into first light (glow-side): the dark-grey fill only measured -0.09 vs a 0.067 noise floor — the flip now happens dawn->morning mid-segment, fast
     dict(label="morning",   az=118, alt=34, amb=(0.500, 0.510, 0.470), dir=(0.88, 0.87, 0.80),
-         street=(126, 128, 126), ink=0.82, glow=0.00, case=0.60, water=( 84, 142, 166)),   # fresh green day, neutral grey grid
+         street=(126, 128, 126), ink=0.76, glow=0.00, case=0.45, tiers=(0.40, 0.85, 1.0), water=( 84, 142, 166)),   # fresh green day. Print: day grid too intense, morning worst + locals far too loud — eased ink/case, locals to ~37%
     dict(label="midday",    az=196, alt=50, amb=(0.440, 0.430, 0.400), dir=(0.75, 0.73, 0.69),
-         street=(120, 122, 122), ink=0.82, glow=0.00, case=0.55, water=( 92, 170, 198)),   # bright green; grey grid, vivid river
+         street=(120, 122, 122), ink=0.78, glow=0.00, case=0.48, tiers=(0.45, 0.85, 1.0), water=( 92, 170, 198)),   # bright green; grey grid, vivid river
     dict(label="afternoon", az=238, alt=34, amb=(0.530, 0.500, 0.470), dir=(1.22, 0.96, 0.66),
-         street=(128, 128, 124), ink=0.90, glow=0.00, case=0.55, water=( 88, 152, 176)),   # golden-green, neutral grey grid
+         street=(128, 128, 124), ink=0.82, glow=0.00, case=0.48, tiers=(0.45, 0.85, 1.0), water=( 88, 152, 176)),   # golden-green, neutral grey grid
     dict(label="dusk",      az=288, alt=12, amb=(0.300, 0.270, 0.340), dir=(1.32, 0.96, 0.50),
          street=(216, 196, 148), ink=0.62, glow=0.36, case=0.08, tiers=(0.55, 0.90, 1.0), water=( 98, 112, 140)),   # the lights COME ON at sunset (glow-side): EVERY grey sat under the dusk noise floor (132 -> +0.05, 96 -> -0.05, floor 0.084 — alpha dilutes any fill toward the ground). Measured +0.165 = 2x the floor
     dict(label="nightfall", az=300, alt=16, amb=(0.150, 0.160, 0.222), dir=(0.44, 0.47, 0.58), desat=0.52, lift=0.052,
