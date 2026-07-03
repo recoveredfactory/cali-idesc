@@ -32,6 +32,9 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -131,10 +134,25 @@ def duplex_pages(items, cols=2, rows=2, page_mm=(210.0, 297.0)):
     return pages
 
 
+def _merge_pdfs(parts, out):
+    """Concatenate per-sheet PDFs into one. PIL's own incremental append
+    (save(..., append=True)) corrupts its trailer chain after a few appends
+    ('trailer loop found'), so every sheet saves as its own 2-page PDF and
+    poppler joins them losslessly (ghostscript as fallback)."""
+    if shutil.which("pdfunite"):
+        subprocess.run(["pdfunite", *map(str, parts), str(out)], check=True)
+    elif shutil.which("gs"):
+        subprocess.run(["gs", "-dBATCH", "-dNOPAUSE", "-q", "-sDEVICE=pdfwrite",
+                        f"-sOutputFile={out}", *map(str, parts)], check=True)
+    else:
+        raise RuntimeError("need pdfunite (poppler-utils) or ghostscript to join the sheet PDFs")
+
+
 def bake_deck(n, args):
-    """The FULL deck: n cards sampled around the eased cycle, streamed straight
-    into printable duplex sheet PDF(s) — pages append to the PDF as each sheet
-    finishes, so memory stays flat (~one sheet) instead of ~5GB for 25 sheets.
+    """The FULL deck: n cards sampled around the eased cycle, streamed into
+    printable duplex sheet PDF(s) — each sheet saves as a small 2-page PDF and
+    the parts merge once at the end, so memory stays flat (~one sheet) instead
+    of ~5GB for 25 sheets of pages.
 
     Always writes the `screen` (master) PDF; when --paper/--back-paper name a
     stock, a second corrected PDF bakes in the same pass — print that one, and
@@ -158,29 +176,32 @@ def bake_deck(n, args):
     n_sheets = (n + per - 1) // per
     print(f"deck: {n} cards -> {n_sheets} duplex sheets; PDFs: "
           + ", ".join(p.name for p in pdfs.values()))
-    first = {sfx: True for sfx, _, _ in variants}
-    for s0 in range(0, n, per):
-        sheet_no = s0 // per + 1
-        items = {sfx: [] for sfx, _, _ in variants}
-        for i in range(s0, min(s0 + per, n)):
-            spec = specs[i]
-            u = i / n * len(blc.CYCLE)
-            tone = bcb.ink_tone(warmth_at(u)) if args.tone == "ink" else bcb.TONES[args.tone]
-            ph_lab, illum, wax = lunar_phase(i, n)
-            front = blc.render_card(win, px_m, streets_px, water_px, spec)   # screen master
-            back = bcb.stamp_number(
-                bcb.back_moon(blc.TRIM_W, blc.TRIM_H, tone, elev, ext,
-                              **bcb.RIDGE_LAYERED, illum=illum, wax=wax), tone, i + 1)
-            if dump:
-                front.save(dump / f"card_{i + 1:03d}_{spec['label']}.png")
-            for sfx, pf, pb in variants:
-                items[sfx].append((i + 1, spec["label"],
-                                   blc.apply_paper(front, pf), blc.apply_paper(back, pb)))
-        for sfx, _, _ in variants:
-            for _, page in sheet_pages(items[sfx], sheet_no):
-                page.save(pdfs[sfx], "PDF", resolution=blc.DPI, append=not first[sfx])
-                first[sfx] = False
-        print(f"  sheet {sheet_no}/{n_sheets} (cards {s0 + 1}-{min(s0 + per, n)}) appended")
+    with tempfile.TemporaryDirectory(prefix="cali_deck_") as tmp:
+        tmp = Path(tmp)
+        for s0 in range(0, n, per):
+            sheet_no = s0 // per + 1
+            items = {sfx: [] for sfx, _, _ in variants}
+            for i in range(s0, min(s0 + per, n)):
+                spec = specs[i]
+                u = i / n * len(blc.CYCLE)
+                tone = bcb.ink_tone(warmth_at(u)) if args.tone == "ink" else bcb.TONES[args.tone]
+                ph_lab, illum, wax = lunar_phase(i, n)
+                front = blc.render_card(win, px_m, streets_px, water_px, spec)   # screen master
+                back = bcb.stamp_number(
+                    bcb.back_moon(blc.TRIM_W, blc.TRIM_H, tone, elev, ext,
+                                  **bcb.RIDGE_LAYERED, illum=illum, wax=wax), tone, i + 1)
+                if dump:
+                    front.save(dump / f"card_{i + 1:03d}_{spec['label']}.png")
+                for sfx, pf, pb in variants:
+                    items[sfx].append((i + 1, spec["label"],
+                                       blc.apply_paper(front, pf), blc.apply_paper(back, pb)))
+            for vi, (sfx, _, _) in enumerate(variants):
+                pages = [page for _, page in sheet_pages(items[sfx], sheet_no)]
+                pages[0].save(tmp / f"v{vi}_s{sheet_no:03d}.pdf", "PDF",
+                              resolution=blc.DPI, save_all=True, append_images=pages[1:])
+            print(f"  sheet {sheet_no}/{n_sheets} (cards {s0 + 1}-{min(s0 + per, n)}) done")
+        for vi, (sfx, _, _) in enumerate(variants):
+            _merge_pdfs(sorted(tmp.glob(f"v{vi}_s*.pdf")), pdfs[sfx])
     for p in pdfs.values():
         print(f"-> {p.name}")
 
