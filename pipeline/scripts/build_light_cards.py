@@ -98,13 +98,13 @@ CYCLE = [
     dict(label="late",      az=250, alt=22, amb=(0.050, 0.066, 0.108), dir=(0.19, 0.23, 0.36), desat=0.80, lift=0.016,
          street=(238, 222, 146), ink=0.24, glow=0.30, tiers=(0.10, 0.52, 1.0), water=( 22,  36,  64)),   # deepest, most obscure; small roads gone
     dict(label="dawn",      az= 82, alt=12, amb=(0.500, 0.480, 0.480), dir=(1.02, 0.84, 0.66),
-         street=(232, 208, 160), ink=0.60, glow=0.26, case=0.10, tiers=(0.60, 0.90, 1.0), water=( 96, 116, 142)),   # the lights LINGER into first light (glow-side): the dark-grey fill only measured -0.09 vs a 0.067 noise floor — the flip now happens dawn->morning mid-segment, fast
+         street=(232, 208, 160), ink=0.60, glow=0.26, case=0.10, tiers=(0.60, 0.90, 1.0), snap_c=0.41, water=( 96, 116, 142)),   # the lights LINGER into first light (glow-side): the dark-grey fill only measured -0.09 vs a 0.067 noise floor. snap_c: the dawn->morning paint flip snaps between deck cards 31|32
     dict(label="morning",   az=118, alt=34, amb=(0.500, 0.510, 0.470), dir=(0.88, 0.87, 0.80),
          street=(126, 128, 126), ink=0.76, glow=0.00, case=0.45, tiers=(0.40, 0.85, 1.0), water=( 84, 142, 166)),   # fresh green day. Print: day grid too intense, morning worst + locals far too loud — eased ink/case, locals to ~37%
     dict(label="midday",    az=196, alt=50, amb=(0.440, 0.430, 0.400), dir=(0.75, 0.73, 0.69),
          street=(120, 122, 122), ink=0.78, glow=0.00, case=0.48, tiers=(0.45, 0.85, 1.0), water=( 92, 170, 198)),   # bright green; grey grid, vivid river
     dict(label="afternoon", az=238, alt=34, amb=(0.530, 0.500, 0.470), dir=(1.22, 0.96, 0.66),
-         street=(128, 128, 124), ink=0.82, glow=0.00, case=0.48, tiers=(0.45, 0.85, 1.0), water=( 88, 152, 176)),   # golden-green, neutral grey grid
+         street=(128, 128, 124), ink=0.82, glow=0.00, case=0.48, tiers=(0.45, 0.85, 1.0), snap_c=0.47, water=( 88, 152, 176)),   # golden-green, neutral grey grid. snap_c: the afternoon->dusk paint flip (lights ON) snaps between deck cards 69|70
     dict(label="dusk",      az=288, alt=12, amb=(0.300, 0.270, 0.340), dir=(1.32, 0.96, 0.50),
          street=(216, 196, 148), ink=0.62, glow=0.36, case=0.08, tiers=(0.55, 0.90, 1.0), water=( 98, 112, 140)),   # the lights COME ON at sunset (glow-side): EVERY grey sat under the dusk noise floor (132 -> +0.05, 96 -> -0.05, floor 0.084 — alpha dilutes any fill toward the ground). Measured +0.165 = 2x the floor
     dict(label="nightfall", az=300, alt=16, amb=(0.150, 0.160, 0.222), dir=(0.44, 0.47, 0.58), desat=0.52, lift=0.052,
@@ -119,6 +119,36 @@ CYCLE = [
 # sweep, instead of cross-fading two fixed renders (which just ghosts).
 def _lerp(a, b, t): return a + (b - a) * t
 def _lerp_rgb(a, b, t): return tuple(_lerp(x, y, t) for x, y in zip(a, b))
+
+
+# The street PAINT (colour/ink/glow/case/tiers) crosses the ground's lightness
+# twice per cycle — the polarity flips. Swept at the light's smooth pace, that
+# crossing smeared a BLIND ZONE across ~7 of 100 sampled cards (grid under the
+# terrain-noise floor: cards 30-33 and 69-71 of the first n100 bake). So the
+# paint gets its own faster clock: _snap compresses its sweep into the middle
+# of the segment (slope k at centre c, clamped, smoothstepped so it lands C1
+# on the keyframes) — the lights switch on/off quickly BETWEEN cards while the
+# sky keeps drifting. Ground movement still thins the flanks; the snap narrows
+# the truly blind stretch to less than a card.
+STREET_SNAP = 7.0                 # paint sweeps ~7x faster than the light mid-segment
+LIGHT_SNAP = 4.0                  # flip segments only: quick equatorial twilight — at 3°N
+                                  # the sky really does dim in minutes, and compressing the
+                                  # ground's transit around the flip clears it out of the
+                                  # street paint's value band on BOTH flanks (the cards just
+                                  # before/after the flip were the last ones drowning)
+LIGHT_MIX = 0.75                  # blend of snapped vs linear light time: a pure snap goes
+                                  # FLAT outside the middle and mints six identical morning
+                                  # cards — the linear share keeps every card's light moving
+# The two flip segments also carry `snap_c` on their starting keyframes (dawn,
+# afternoon), tuned so the snap midpoint falls in the GAP between two adjacent
+# card positions of the canonical 100-card deck (cards 31|32 and 69|70) — at
+# k=7 each flip card keeps >=97% of its keyframe paint and none sits blind.
+# Re-tune snap_c if the deck count changes materially from ~100.
+
+
+def _snap(t, k=STREET_SNAP, c=0.5):
+    u = min(1.0, max(0.0, (t - c) * k + 0.5))
+    return u * u * (3.0 - 2.0 * u)
 def _lerp_ang(a, b, t):
     """Interpolate an azimuth along the SHORTEST arc (so late->dawn swings the
     short way across the sky, not a full spin)."""
@@ -162,18 +192,30 @@ def _lerp_lab(c0, c1, t):
 
 
 def interp_spec(k0, k1, t):
-    """Blend two cycle keyframes at t in [0,1]. Light multipliers (amb/dir/tiers/
-    desat/lift) stay float; the paint colours (street/water) cross-fade in OKLab
-    so the moving light never dips through a muddy midtone."""
+    """Blend two cycle keyframes at t in [0,1]. The LIGHT (az/alt/amb/dir) and
+    the GROUND (desat/lift) and the water drift at t's smooth pace; the street
+    PAINT (street/ink/glow/case/tiers) rides _snap(t) — a much faster sweep
+    through mid-segment, so its two polarity flips cross the ground's value
+    between cards instead of smearing a blind twilight over several. Paint
+    colours (street/water) cross-fade in OKLab so the moving light never dips
+    through a muddy midtone. A segment can move its snap centre off 0.5 with
+    `snap_c` on its STARTING keyframe (the crossing isn't always mid-segment)."""
     d0 = k0.get("tiers", (1.0, 1.0, 1.0)); d1 = k1.get("tiers", (1.0, 1.0, 1.0))
+    c = k0.get("snap_c")                       # set only on the two flip segments
+    ts = _snap(t, c=0.5 if c is None else c)
+    tl = t if c is None else \
+        (1 - LIGHT_MIX) * t + LIGHT_MIX * _snap(t, LIGHT_SNAP, c)   # quick twilight, never flat
     return dict(
         label=k0["label"] if t < 0.5 else k1["label"],
-        az=_lerp_ang(k0["az"], k1["az"], t), alt=_lerp(k0["alt"], k1["alt"], t),
-        amb=_lerp_rgb(k0["amb"], k1["amb"], t), dir=_lerp_rgb(k0["dir"], k1["dir"], t),
-        street=_lerp_lab(k0["street"], k1["street"], t), water=_lerp_lab(k0["water"], k1["water"], t),
-        ink=_lerp(k0["ink"], k1["ink"], t), glow=_lerp(k0["glow"], k1["glow"], t),
-        case=_lerp(k0.get("case", 0.0), k1.get("case", 0.0), t),
-        tiers=_lerp_rgb(d0, d1, t),
+        # az/alt ride the light clock too: at dawn the ground brightens via the
+        # CLIMBING sun (sin alt), not the colour multipliers — snapping amb/dir
+        # alone leaves the twilight ground exactly where it drowned the grid
+        az=_lerp_ang(k0["az"], k1["az"], tl), alt=_lerp(k0["alt"], k1["alt"], tl),
+        amb=_lerp_rgb(k0["amb"], k1["amb"], tl), dir=_lerp_rgb(k0["dir"], k1["dir"], tl),
+        street=_lerp_lab(k0["street"], k1["street"], ts), water=_lerp_lab(k0["water"], k1["water"], t),
+        ink=_lerp(k0["ink"], k1["ink"], ts), glow=_lerp(k0["glow"], k1["glow"], ts),
+        case=_lerp(k0.get("case", 0.0), k1.get("case", 0.0), ts),
+        tiers=_lerp_rgb(d0, d1, ts),
         desat=_lerp(k0.get("desat", DESAT), k1.get("desat", DESAT), t),
         lift=_lerp(k0.get("lift", AMB_LIFT), k1.get("lift", AMB_LIFT), t),
     )
