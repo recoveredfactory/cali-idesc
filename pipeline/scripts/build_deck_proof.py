@@ -12,8 +12,10 @@ long-edge duplex pass undoes. Card k's front and back therefore share the same
 physical rectangle, so the crop marks on both sides should coincide — hold a
 printed sheet up to the light to check the printer's duplex registration.
 
-The PDF pages come out in duplex print order (sheet 1 front, sheet 1 back, ...):
-print it double-sided at 100% scale, flip on long edge.
+The PDF pages come out in duplex print order — BACK first, then front, per
+sheet (sheet 1 back, sheet 1 front, ...): hand-fed stock prints the matte back
+side first, then the glossy front lands on the untouched coated side. Print at
+100% scale, flip on long edge.
 
 Run from pipeline/:
     .venv/bin/python scripts/build_deck_proof.py                     # sample: cards 1-4 (all before midday)
@@ -26,7 +28,7 @@ FULL DECK (the real print run): --deck N samples N cards around the eased cycle
 master always, plus the stock-corrected PDF when --paper/--back-paper are set.
 The lunar month walks the backs (one whole month per ~28 cards, whole months
 per deck so the wrap is seamless); back-ink warmth follows the front's light.
-    .venv/bin/python scripts/build_deck_proof.py --deck 100 --paper glossy --back-paper matte
+    .venv/bin/python scripts/build_deck_proof.py --deck 112 --format fat --paper glossy --back-paper matte
 """
 from __future__ import annotations
 
@@ -98,15 +100,16 @@ def parse_cards(s):
 
 
 def sheet_pages(items, sheet_no, cols=2, rows=2, page_mm=(210.0, 297.0)):
-    """ONE physical sheet (up to cols*rows cards) -> [(name, front_page),
-    (name, back_page)]. The back page mirrors COLUMNS (long-edge flip), images
-    stay upright; rows stay put. items = [(num, label, front_img, back_img)]."""
+    """ONE physical sheet (up to cols*rows cards) -> [(name, back_page),
+    (name, front_page)] — back FIRST, so a hand-fed duplex run prints the matte
+    side before the glossy side. The back page mirrors COLUMNS (long-edge flip),
+    images stay upright; rows stay put. items = [(num, label, front, back)]."""
     pw, ph = blc._px(page_mm[0]), blc._px(page_mm[1])
     gx = (pw - cols * blc.TRIM_W) // (cols + 1)
     gy = (ph - rows * blc.TRIM_H) // (rows + 1)
     f, fh = blc._font(20), blc._font(26)
     pages = []
-    for side in ("front", "back"):
+    for side in ("back", "front"):        # matte back first — hand-fed duplex
         page = Image.new("RGB", (pw, ph), (255, 255, 255))
         d = ImageDraw.Draw(page)
         d.text((gx, gy // 2 - 16),
@@ -172,7 +175,7 @@ def bake_deck(n, args):
     if dump:
         dump.mkdir(exist_ok=True)
 
-    per = 4                                                # 2x2 tarot cards per A4
+    per = 4                                                # 2x2 cards per A4 (all formats fit)
     n_sheets = (n + per - 1) // per
     print(f"deck: {n} cards -> {n_sheets} duplex sheets; PDFs: "
           + ", ".join(p.name for p in pdfs.values()))
