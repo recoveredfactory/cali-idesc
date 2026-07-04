@@ -99,11 +99,13 @@ def parse_cards(s):
     return out
 
 
-def sheet_pages(items, sheet_no, cols=2, rows=2, page_mm=(210.0, 297.0)):
+def sheet_pages(items, sheet_no, cols=2, rows=2, page_mm=(210.0, 297.0), bare=False):
     """ONE physical sheet (up to cols*rows cards) -> [(name, back_page),
     (name, front_page)] — back FIRST, so a hand-fed duplex run prints the matte
     side before the glossy side. The back page mirrors COLUMNS (long-edge flip),
-    images stay upright; rows stay put. items = [(num, label, front, back)]."""
+    images stay upright; rows stay put. items = [(num, label, front, back)].
+    bare = full-bleed onto card stock: no header, labels or crop marks (the page
+    IS the card — nothing to cut)."""
     pw, ph = blc._px(page_mm[0]), blc._px(page_mm[1])
     gx = (pw - cols * blc.TRIM_W) // (cols + 1)
     gy = (ph - rows * blc.TRIM_H) // (rows + 1)
@@ -112,29 +114,40 @@ def sheet_pages(items, sheet_no, cols=2, rows=2, page_mm=(210.0, 297.0)):
     for side in ("back", "front"):        # matte back first — hand-fed duplex
         page = Image.new("RGB", (pw, ph), (255, 255, 255))
         d = ImageDraw.Draw(page)
-        d.text((gx, gy // 2 - 16),
-               f"cali deck — sheet {sheet_no} · {side}s · print 100% · duplex: flip on LONG edge",
-               fill=(120, 120, 120), font=fh)
+        if not bare:
+            d.text((gx, gy // 2 - 16),
+                   f"cali deck — sheet {sheet_no} · {side}s · print 100% · duplex: flip on LONG edge",
+                   fill=(120, 120, 120), font=fh)
         for j, (num, lab, front, back) in enumerate(items):
             r, c = divmod(j, cols)
             if side == "back":
                 c = cols - 1 - c                           # what the long-edge flip undoes
             x, y = gx + c * (blc.TRIM_W + gx), gy + r * (blc.TRIM_H + gy)
             page.paste(front if side == "front" else back, (x, y))
-            blc._crop_marks(d, x, y, blc.TRIM_W, blc.TRIM_H)
-            d.text((x, y - 26), f"{num} · {lab}" if side == "front" else f"{num} · back",
-                   fill=(140, 140, 140), font=f)
+            if not bare:
+                blc._crop_marks(d, x, y, blc.TRIM_W, blc.TRIM_H)
+                d.text((x, y - 26), f"{num} · {lab}" if side == "front" else f"{num} · back",
+                       fill=(140, 140, 140), font=f)
         pages.append((f"s{sheet_no}_{side}", page))
     return pages
 
 
-def duplex_pages(items, cols=2, rows=2, page_mm=(210.0, 297.0)):
+def duplex_pages(items, cols=2, rows=2, page_mm=(210.0, 297.0), bare=False):
     """All sheets in memory (fine for a handful of cards — the proof path)."""
     per = cols * rows
     pages = []
     for p0 in range(0, len(items), per):
-        pages += sheet_pages(items[p0:p0 + per], p0 // per + 1, cols, rows, page_mm)
+        pages += sheet_pages(items[p0:p0 + per], p0 // per + 1, cols, rows, page_mm, bare)
     return pages
+
+
+def page_layout(args):
+    """(cols, rows, page_mm, bare) for --page: 'a4' = 2x2 cards on A4 with crop
+    marks; 'card' = ONE full-bleed card per page, page size = the format's trim
+    (print borderless straight onto card stock — nothing to cut)."""
+    if args.page == "card":
+        return 1, 1, blc.CARD_MM, True
+    return 2, 2, (210.0, 297.0), False
 
 
 def _merge_pdfs(parts, out):
@@ -160,7 +173,9 @@ def bake_deck(n, args):
     Always writes the `screen` (master) PDF; when --paper/--back-paper name a
     stock, a second corrected PDF bakes in the same pass — print that one, and
     compare against the screen master when chasing colour."""
-    fmt_sfx = "" if args.format == "tall" else f"_{args.format}"
+    fmt_sfx = ("" if args.format == "tall" else f"_{args.format}") + \
+              ("_card" if args.page == "card" else "")
+    cols, rows, page_mm, bare = page_layout(args)
     variants = [("", "screen", "screen")]
     if (args.paper, args.back_paper) != ("screen", "screen"):
         p_sfx = ("" if args.paper == "screen" else f"_{args.paper}") + \
@@ -175,7 +190,7 @@ def bake_deck(n, args):
     if dump:
         dump.mkdir(exist_ok=True)
 
-    per = 4                                                # 2x2 cards per A4 (all formats fit)
+    per = cols * rows                                      # 2x2 per A4, or 1 per card page
     n_sheets = (n + per - 1) // per
     print(f"deck: {n} cards -> {n_sheets} duplex sheets; PDFs: "
           + ", ".join(p.name for p in pdfs.values()))
@@ -199,7 +214,8 @@ def bake_deck(n, args):
                     items[sfx].append((i + 1, spec["label"],
                                        blc.apply_paper(front, pf), blc.apply_paper(back, pb)))
             for vi, (sfx, _, _) in enumerate(variants):
-                pages = [page for _, page in sheet_pages(items[sfx], sheet_no)]
+                pages = [page for _, page in
+                         sheet_pages(items[sfx], sheet_no, cols, rows, page_mm, bare)]
                 pages[0].save(tmp / f"v{vi}_s{sheet_no:03d}.pdf", "PDF",
                               resolution=blc.DPI, save_all=True, append_images=pages[1:])
             print(f"  sheet {sheet_no}/{n_sheets} (cards {s0 + 1}-{min(s0 + per, n)}) done")
@@ -219,6 +235,10 @@ def main():
     ap.add_argument("--dump-cards", action="store_true",
                     help="(with --deck) also save each front as a PNG")
     ap.add_argument("--format", choices=list(blc.FORMATS), default="tarot")
+    ap.add_argument("--page", choices=("a4", "card"), default="a4",
+                    help="a4 = 2x2 cards per sheet with crop marks; card = one "
+                         "full-bleed card per page at the format's trim size "
+                         "(print borderless straight onto card stock)")
     ap.add_argument("--tone", choices=list(bcb.TONES), default="ink",
                     help="back tone (ink = the matte/handwritten side)")
     ap.add_argument("--paper", choices=list(blc.PAPER), default="screen",
@@ -233,6 +253,7 @@ def main():
         return
     nums = parse_cards(args.cards)
     sfx = ("" if args.format == "tall" else f"_{args.format}") + \
+          ("_card" if args.page == "card" else "") + \
           ("" if args.paper == "screen" else f"_{args.paper}") + \
           ("" if args.back_paper == "screen" else f"_b{args.back_paper}")
 
@@ -255,7 +276,8 @@ def main():
         back = blc.apply_paper(bcb.stamp_number(back, t, n), args.back_paper)
         items.append((n, spec["label"], front, back))
 
-    pages = duplex_pages(items)
+    cols, rows, page_mm, bare = page_layout(args)
+    pages = duplex_pages(items, cols, rows, page_mm, bare)
     pdf = blc.OUT / f"proof_duplex{sfx}.pdf"
     pages[0][1].save(pdf, "PDF", resolution=blc.DPI, save_all=True,
                      append_images=[p for _, p in pages[1:]])

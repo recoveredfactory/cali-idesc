@@ -259,6 +259,7 @@ FORMATS = {
     "tall":  (70.0, 120.0),        # 7:12 standard tarot — the original narrow frame
     "tarot": (80.0, 120.0),        # a little fatter, 2:3
     "fat":   (90.0, 120.0),        # fatter still, 3:4
+    "a6":    (105.0, 148.0),       # full-bleed A6 card stock — print straight on, no cutting
 }
 
 
