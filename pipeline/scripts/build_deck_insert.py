@@ -4,7 +4,10 @@ outline, a ghost of the card back (the layered Farallones ridge under a full
 moon, in pale warm grey): lift the deck and the moon appears.
 
 White ground — text, one thin outline and whisper-grey ridge lines only, so it
-costs almost no ink. A4 landscape, print at 100%.
+costs almost no ink. Letter landscape, print at 100%.
+
+Type: Elgraine (hers — from luna-limon, converted woff->ttf into data/fonts/,
+which stays out of the public repo); falls back to Windows Garamond if absent.
 
 Run from pipeline/:
     .venv/bin/python scripts/build_deck_insert.py
@@ -21,12 +24,17 @@ _spec = importlib.util.spec_from_file_location("bcb", HERE / "build_card_back.py
 bcb = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(bcb)
 blc = bcb.blc
 
-PAGE_MM = (297.0, 210.0)          # A4 landscape
+PAGE_MM = (279.4, 215.9)          # Letter landscape
 CARD_FORMAT = "fat"               # the deck being printed — outline matches its trim
 CORNER_MM = 5.0                   # outline corner radius (the corner rounder's curve)
 
+FONTS = HERE.parent / "data" / "fonts"
 WIN_FONTS = Path("/mnt/c/Windows/Fonts")
-BODY_FONT, TITLE_FONT = "GARA.TTF", "GARAIT.TTF"          # Garamond + italic
+if (FONTS / "Elgraine-Regular.ttf").exists():
+    BODY_FONT = FONTS / "Elgraine-Regular.ttf"
+    TITLE_FONT = FONTS / "Elgraine-Italic.ttf"
+else:                                                     # public-repo fallback
+    BODY_FONT, TITLE_FONT = WIN_FONTS / "GARA.TTF", WIN_FONTS / "GARAIT.TTF"
 
 INK = (58, 52, 46)                # the deck's own ink (build_card_back TONES)
 FAINT = (150, 142, 132)           # outline + title rule
@@ -84,8 +92,8 @@ def build():
     mx = blc._px(24)
     col_w = cx - blc._px(16) - mx                          # text stops shy of the card home
     for body_pt in range(12, 8, -1):                       # largest size that fits the page
-        fb = ImageFont.truetype(str(WIN_FONTS / BODY_FONT), round(body_pt / 72 * blc.DPI))
-        ft = ImageFont.truetype(str(WIN_FONTS / TITLE_FONT), round(body_pt * 2.4 / 72 * blc.DPI))
+        fb = ImageFont.truetype(str(BODY_FONT), round(body_pt / 72 * blc.DPI))
+        ft = ImageFont.truetype(str(TITLE_FONT), round(body_pt * 2.4 / 72 * blc.DPI))
         lh = round(fb.size * 1.45)
         lines = _wrap(d, BODY, fb, col_w)
         head = round(ft.size * 1.25) + blc._px(7)          # title + rule + air
@@ -107,10 +115,10 @@ def build():
         else:
             y += round(lh * 0.55)
 
-    out = blc.OUT / "deck_insert_fat.pdf"
+    out = blc.OUT / "deck_insert_fat_letter.pdf"
     page.save(out, "PDF", resolution=blc.DPI)
-    page.save(blc.OUT / "deck_insert_fat.png")
-    print(f"-> {out.name} (A4 landscape, body {body_pt}pt) + preview PNG")
+    page.save(blc.OUT / "deck_insert_fat_letter.png")
+    print(f"-> {out.name} (letter landscape, body {body_pt}pt) + preview PNG")
 
 
 if __name__ == "__main__":
