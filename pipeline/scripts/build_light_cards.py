@@ -191,7 +191,7 @@ def _lerp_lab(c0, c1, t):
     return _oklab_to_rgb(tuple(_lerp(x, y, t) for x, y in zip(a, b)))
 
 
-def interp_spec(k0, k1, t):
+def interp_spec(k0, k1, t, smooth_light=False):
     """Blend two cycle keyframes at t in [0,1]. The LIGHT (az/alt/amb/dir) and
     the GROUND (desat/lift) and the water drift at t's smooth pace; the street
     PAINT (street/ink/glow/case/tiers) rides _snap(t) — a much faster sweep
@@ -199,11 +199,17 @@ def interp_spec(k0, k1, t):
     between cards instead of smearing a blind twilight over several. Paint
     colours (street/water) cross-fade in OKLab so the moving light never dips
     through a muddy midtone. A segment can move its snap centre off 0.5 with
-    `snap_c` on its STARTING keyframe (the crossing isn't always mid-segment)."""
+    `snap_c` on its STARTING keyframe (the crossing isn't always mid-segment).
+
+    smooth_light: the VIDEO's clock — sun and ambience at t's smooth pace even
+    through the flip segments. The mixed light clock exists so no printed CARD
+    sits in the blind twilight, but on screen it reads as the sun stalling and
+    the mountain light lurching. A few transiently-dim frames are fine in
+    motion (the streets still snap on) — context over consistency."""
     d0 = k0.get("tiers", (1.0, 1.0, 1.0)); d1 = k1.get("tiers", (1.0, 1.0, 1.0))
     c = k0.get("snap_c")                       # set only on the two flip segments
     ts = _snap(t, c=0.5 if c is None else c)
-    tl = t if c is None else \
+    tl = t if (c is None or smooth_light) else \
         (1 - LIGHT_MIX) * t + LIGHT_MIX * _snap(t, LIGHT_SNAP, c)   # quick twilight, never flat
     return dict(
         label=k0["label"] if t < 0.5 else k1["label"],
@@ -221,17 +227,19 @@ def interp_spec(k0, k1, t):
     )
 
 
-def cycle_frames(n, ease=True, cycle=CYCLE):
+def cycle_frames(n, ease=True, cycle=CYCLE, smooth_light=False):
     """N specs evenly around the loop (seamless: frame n would equal frame 0, so
     nightfall wraps back to the moon). `ease` settles gently onto each named phase;
-    off = constant angular speed. Use this for the video AND the flip-book pages."""
+    off = constant angular speed. Use this for the video AND the flip-book pages.
+    smooth_light: see interp_spec — the video's smooth sun, cards keep the snap."""
     m = len(cycle)
     out = []
     for i in range(n):
         u = (i / n) * m                              # position along the loop, in segments
         seg = int(math.floor(u)) % m
         t = u - math.floor(u)
-        out.append(interp_spec(cycle[seg], cycle[(seg + 1) % m], _ease(t) if ease else t))
+        out.append(interp_spec(cycle[seg], cycle[(seg + 1) % m],
+                               _ease(t) if ease else t, smooth_light=smooth_light))
     return out
 
 # ---- streets ---------------------------------------------------------------

@@ -55,7 +55,7 @@ def render_frames(m, n, paper, ease, label, full):
     else a downscaled DEM window for a quick preview. Returns (frames, vid_w)."""
     win, px_m, streets, water = m.prep_scene(target_h=None if full else PREVIEW_H)
     vid_w = round(VID_H * m.TRIM_W / m.TRIM_H) // 2 * 2          # even width, card aspect
-    specs = m.cycle_frames(n, ease=ease)
+    specs = m.cycle_frames(n, ease=ease, smooth_light=True)   # the video's sun never stalls
     frames = []
     for i, spec in enumerate(specs):
         card = m.render_card(win, px_m, streets, water, spec, to_trim=full, paper=paper)
