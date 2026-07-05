@@ -1,0 +1,483 @@
+"""Card BACKS for the light-cards deck — the shared reverse every card carries.
+
+The deck's front is a rich, high-res terrain image (my language: precise, digital).
+The back leans the other way on purpose — toward line art, illustrated, esoteric
+(her language) — but drawn from the SAME real Farallones data, so it's line art
+that could only come from this map. Handwritten lettering goes on top (matte side).
+
+Concepts (see the comparison sheet cmp_backs.png):
+  A  moon-over-ridge   the Farallones skyline (DEM silhouette) under a fine moon,
+                       open field below to write in
+  B  contour-field     the real curvas de nivel (pot_2014__bcs_curvas_nivel),
+                       faint, filling the mountains; the valley stays open
+  C  contour-zoom      the same contours zoomed into an abstract, swirling patch
+                       of ridgeline — esoteric organic line art
+  D  joy-division      stacked E-W elevation profiles of a rugged patch, the
+                       Unknown-Pleasures ridgeline stack, straight from the DEM
+
+Each renders in two tones: `ink` (dark line on warm cream — takes any pen) and
+`night` (pale line on deep ink — a white/gold gel pen, matches the night deck).
+
+Run from pipeline/:
+    .venv/bin/python scripts/build_card_back.py            # comparison sheet
+    .venv/bin/python scripts/build_card_back.py --full     # + full-res PNGs
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import math
+from pathlib import Path
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter
+
+HERE = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location("blc", HERE / "build_light_cards.py")
+blc = importlib.util.module_from_spec(spec); spec.loader.exec_module(blc)
+blc.use_format("tarot")                                   # the chosen deck size
+
+DATA = HERE.parent / "data"
+CURVAS = DATA / "geojson" / "pot_2014__bcs_curvas_nivel.geojson"   # real contour lines (cota m)
+
+# abstract, rugged patches of the Farallones for the zoomed concepts:
+# high relief, dense contours, no city grid — reads as pure landform.
+ZOOM = (-76.700, -76.560, 3.470, 3.300)                   # C: dense swirling contours
+ZOOM_JOY = (-76.660, -76.545, 3.455, 3.300)               # D: transects that cross ridges
+WELL = (0.50, 0.62, 0.34, 0.26)                           # writing panel: cx,cy,rx,ry (frac of W,H)
+
+# LOOKING WEST at the Farallones for the layered back — the real photo view. Longitude
+# runs from the high western crest (far) to the city's foothills (near); latitude is the
+# card's N-S sweep, and it maps to the card's WIDTH, so each ridgeline stretches edge to
+# edge (undulating, not ramping up one side). W, E, N, S:
+RIDGE_VIEW = (-76.720, -76.560, 3.560, 3.235)
+
+# moon-over-ridge (concept A) geometry, as fractions of W/H:
+MOON = (0.70, 0.162, 0.102)                               # cx, cy, radius — held FIXED (a touch smaller + higher)
+RIDGE_BASE = 0.68                                         # horizon line, lowered = more open sky
+RIDGE_AMP = 0.20                                          # silhouette height
+
+# two tonal families
+TONES = {
+    "ink":   dict(bg=(237, 232, 221), line=(58, 52, 46), faint=(120, 110, 100), moon=(70, 62, 54)),
+    "night": dict(bg=(12, 14, 21),    line=(228, 224, 210), faint=(120, 130, 150), moon=(232, 230, 214)),
+}
+
+# the deck number on the matte/handwritten side: quiet but plainly legible,
+# tucked into the lower-right corner. The first print (2.3mm @ alpha 80) was
+# "way too small and subtle" — matte paper eats faint ink.
+NUM_MM = 4.2                     # digit height on the trim card
+NUM_MARGIN_MM = 4.5              # in from the trim edges (clear of the cut)
+NUM_ALPHA = 175                  # the tone's faint colour, most of the way in
+
+
+# per-card ink temperature: the back's line colour leans toward its FRONT's
+# light — cool blue-slate for the night cards, warm sepia through the day.
+# Subtle: the value stays near the neutral ink; only the temperature moves.
+INK_COOL = dict(line=(50, 56, 76), faint=(106, 114, 134), moon=(60, 66, 84))
+INK_WARM = dict(line=(90, 64, 44), faint=(134, 114, 96), moon=(102, 74, 52))
+
+
+def ink_tone(warmth):
+    """The `ink` tone tinted cool<->warm (OKLab, warmth in [0,1]) to match a
+    front card. bg stays the shared cream — only the drawn lines shift."""
+    t = dict(TONES["ink"])
+    for k in ("line", "faint", "moon"):
+        t[k] = blc._lerp_lab(INK_COOL[k], INK_WARM[k], warmth)
+    return t
+
+
+def stamp_number(img, t, n):
+    """Stamp card number `n`, very small and subtle, in the lower-right of a
+    finished back. Scales with the image so studies and full-res match. Drawn
+    on an overlay: ImageDraw honours fill-alpha for lines/polygons but not for
+    text on an RGB image, so text has to composite to actually be faint."""
+    W, H = img.size
+    k = H / blc.TRIM_H
+    f = blc._font(max(10, round(blc._px(NUM_MM) * k)))
+    m = blc._px(NUM_MARGIN_MM) * k
+    ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(ov)
+    s = str(n)
+    bb = d.textbbox((0, 0), s, font=f)
+    d.text((W - m - (bb[2] - bb[0]), H - m - (bb[3] - bb[1])), s,
+           font=f, fill=(*t["faint"], NUM_ALPHA))
+    return Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
+
+
+# ---- projection (explicit bbox, so the zoomed concepts get their own window) --
+def project_ll(lines, bbox, W, H):
+    w, e, n, s = bbox
+    x0, x1, yN, yS = blc.mx(w), blc.mx(e), blc.my(n), blc.my(s)
+    return [[((blc.mx(lo) - x0) / (x1 - x0) * W, (yN - blc.my(la)) / (yN - yS) * H)
+             for lo, la in ln] for ln in lines]
+
+
+def crop_bbox(elev, ext, bbox):
+    x0, x1, yN, yS = ext
+    H, W = elev.shape
+    w, e, n, s = bbox
+    c0 = max(0, int((blc.mx(w) - x0) / (x1 - x0) * W)); c1 = min(W, int((blc.mx(e) - x0) / (x1 - x0) * W))
+    r0 = max(0, int((yN - blc.my(n)) / (yN - yS) * H)); r1 = min(H, int((yN - blc.my(s)) / (yN - yS) * H))
+    return elev[r0:r1, c0:c1]
+
+
+# ---- contour lines (real curvas de nivel) ----------------------------------
+_CONTOURS = None
+def load_contours():
+    """[(cota_m, [(lon,lat),...]), ...] — parsed once (the file is ~140MB)."""
+    global _CONTOURS
+    if _CONTOURS is None:
+        d = json.load(open(CURVAS))
+        out = []
+        for f in d["features"]:
+            g = f.get("geometry")
+            if not g:
+                continue
+            cota = f["properties"].get("cota", 0)
+            if g["type"] == "LineString":
+                out.append((cota, g["coordinates"]))
+            elif g["type"] == "MultiLineString":
+                out += [(cota, ln) for ln in g["coordinates"]]
+        _CONTOURS = out
+    return _CONTOURS
+
+
+def _in(bbox, ln):
+    w, e, n, s = bbox
+    return any(w <= lo <= e and s <= la <= n for lo, la in ln)
+
+
+# ---- concept renderers (each returns an RGB card at W x H) -----------------
+def _blur1d(a, r):
+    if r < 1:
+        return a
+    k = np.ones(2 * r + 1) / (2 * r + 1)
+    return np.convolve(np.pad(a, r, mode="edge"), k, mode="valid")
+
+
+def _moon(d, W, H, t, illum=1.0, wax=True):
+    """The moon in the open sky. illum in [0,1]: 1=full open ring; <1 also draws the
+    terminator (the lit/unlit boundary) as a fine curve — waxing lights the right limb,
+    waning the left. The disc stays an open line-art ring so it reads on cream or ink."""
+    mcx, mcy, mr = MOON
+    r, cx, cy = W * mr, W * mcx, H * mcy
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(*t["moon"], 235), width=max(2, W // 380))
+    d.ellipse([cx - r * 0.86, cy - r * 0.86, cx + r * 0.86, cy + r * 0.86],
+              outline=(*t["moon"], 70), width=max(1, W // 700))   # faint inner ring
+    if 0.02 < illum < 0.98:                                       # the terminator (day/night line)
+        phi = math.acos(max(-1.0, min(1.0, 2 * illum - 1)))       # 0 = full .. pi = new
+        yn = np.linspace(-1.0, 1.0, 128)
+        xt = -(1.0 if wax else -1.0) * math.cos(phi) * np.sqrt(1 - yn ** 2)   # ellipse: r|cosφ| wide
+        d.line([(cx + xt[i] * r, cy + yn[i] * r) for i in range(len(yn))],
+               fill=(*t["moon"], 210), width=max(2, W // 460), joint="curve")
+
+
+def back_moon(W, H, t, elev, ext, base=None, amp=None, layers=1,
+              spread=0.52, parallax=0.0, gamma=1.0, crest_blur=120, illum=1.0, wax=True,
+              tuck=0.0, near_fade=0.0, far_gentle=0.0, far_smooth=0.0):
+    """A — Farallones skyline under a fine moon; the moon is FIXED and the ridge can
+    drop (base -> 1.0) to open up sky. layers=1 is one clean silhouette; layers>1 stacks
+    several DEM skylines into receding, atmospheric ridges (far crest high/pale/thin, near
+    ridge low/dark/crisp) — the real layered view from the city. Tuning the layered look:
+      base      the NEAREST ridge's baseline (frac of H); SMALLER pushes the whole stack UP
+                toward the moon, opening more open field below to write in
+      spread    vertical gap between receding ridges (x amp); smaller = a tighter cluster
+      tuck      pull the NEAREST ridge up toward the group (0..1 of one gap), so the bottom
+                ridge sits tighter to the others instead of trailing low
+      near_fade thin/pale the near ridges (0..~0.3) so the bottom two read fainter — saves
+                ink and writing contrast, at some cost to the sense of depth
+      far_gentle lower the FAR ridge's amplitude (0..1) so the faint distant crest is a soft
+                arc, not a high-flying hump (true to the photo — the far cordillera is gentle)
+      far_smooth extra blur on the far ridge (0..~1) — the haze softens distant detail
+      parallax  horizontal stagger per layer (frac of W); shifts peaks apart so the ridges
+                don't all pile into one steep corner (the receding-ranges parallax)
+      gamma     >1 rounds the crest / gentles the shoulder of the rise
+      crest_blur smaller = more crest smoothing = gentler, less jagged ridge
+    illum/wax pass through to the moon (phase)."""
+    base = (RIDGE_BASE if base is None else base) * H
+    amp = (RIDGE_AMP if amp is None else amp) * H
+    img = Image.new("RGB", (W, H), t["bg"]); d = ImageDraw.Draw(img, "RGBA")
+    if layers <= 1:
+        crop = crop_bbox(elev, ext, blc.WINDOW)
+        xs = np.linspace(0, W, crop.shape[1])
+        sky = _blur1d(crop.max(axis=0), max(2, crop.shape[1] // crest_blur))
+        lo, hi = sky.min(), sky.max()
+        n = ((sky - lo) / (hi - lo + 1e-6)) ** gamma
+        ys = base - n * amp
+        pts = list(zip(xs, ys))
+        d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 16))    # barely-there fill under the ridge
+        d.line(pts, fill=(*t["line"], 235), width=max(2, W // 340), joint="curve")
+    else:
+        # LOOKING WEST at the Farallones (the photo): x = LATITUDE, so every ridgeline
+        # stretches edge to edge instead of ramping up one side. Receding layers = distance
+        # bands in longitude: far = the high western crest (pale/high), near = the eastern
+        # foothills (dark/low). Each band's skyline = max elevation across its longitudes.
+        crop = crop_bbox(elev, ext, RIDGE_VIEW)
+        nrow, ncol = crop.shape
+        lo, hi = float(crop.min()), float(crop.max())              # shared scale: far crest tall, foothills short
+        br = max(2, nrow // crest_blur)
+        lon_bands = np.array_split(np.arange(ncol), layers)        # 0 = west (far) .. last = east (near)
+        xs = np.linspace(0, W, nrow)                               # x = latitude, across the full width
+        step = amp * spread
+        far_base = base - step * (layers - 1)                      # the farthest (top) baseline
+        for i in range(layers):                                    # far (high, pale) -> near (low, dark)
+            frac = i / (layers - 1)
+            bri = max(2, int(round(br * (1 + far_smooth * (1 - frac)))))   # far ridge: hazier, softer
+            prof = crop[:, lon_bands[i]].max(axis=1)               # skyline over latitude for this distance band
+            prof = _blur1d(prof[::-1], bri)                        # [::-1]: looking west, north falls on the right
+            n = ((prof - lo) / (hi - lo + 1e-6)) ** gamma
+            ampi = amp * (1 - far_gentle * (1 - frac))             # far ridge gentler (lower amplitude)
+            descent = step * i                                     # how far this ridge sits below the top
+            if i == layers - 1:
+                descent -= tuck * step                             # tuck the nearest up toward the group
+            lb = far_base + descent
+            ys = lb - n * ampi
+            dx = (frac - 0.5) * parallax * W                       # optional lateral stagger between layers
+            xsl = xs + dx
+            pts = list(zip(xsl, ys))
+            if pts[0][0] > 0:                                      # keep the fill/line spanning the card
+                pts = [(0.0, ys[0]), *pts]
+            if pts[-1][0] < W:
+                pts = [*pts, (float(W), ys[-1])]
+            # depth = TONE: a wide prominence ladder (far pale/thin -> near dark/
+            # thick). The first print read too even — the ladder is now stretched
+            # at both ends so the recession actually registers on paper.
+            prom = (0.22 + 0.78 * frac) * (1 - near_fade * frac)   # near_fade pales the bottom ridges
+            col = tuple(int(round(blc._lerp(b, l, prom))) for b, l in zip(t["bg"], t["line"]))
+            w = max(1, round(W / 440 * (0.45 + 0.95 * frac) * (1 - 0.5 * near_fade * frac)))
+            d.polygon([(0, H), *pts, (W, H)], fill=(*t["bg"], 255))   # near ridge occludes those behind
+            if i == layers - 1:                                       # whisper of ground under the nearest
+                d.polygon([(0, H), *pts, (W, H)], fill=(*t["line"], 12))
+            d.line(pts, fill=(*col, 235), width=w, joint="curve")
+    _moon(d, W, H, t, illum=illum, wax=wax)
+    return img
+
+
+def _study(out, panels, elev, ext):
+    """Generic ink moon-back study: panels = [(label, kwargs), ...]."""
+    th_h = 1200; th_w = round(th_h * blc.TRIM_W / blc.TRIM_H)
+    pad = 16; f = blc._font(22)
+    W = len(panels) * (th_w + pad) + pad; Ht = th_h + 2 * pad + 34
+    s = Image.new("RGB", (W, Ht), (30, 30, 34)); d = ImageDraw.Draw(s)
+    for i, (lab, kw) in enumerate(panels):
+        im = back_moon(th_w, th_h, TONES["ink"], elev, ext, **kw)
+        x0 = pad + i * (th_w + pad); s.paste(im, (x0, pad))
+        d.text((x0 + 4, pad + th_h + 5), lab, fill=(215, 215, 215), font=f)
+    s.save(out); print("->", out)
+
+
+def moon_study(elev, ext, out):
+    """Ink moon-over-ridge at a few horizon heights (moon fixed)."""
+    _study(out, [(f"ridge base {b:.2f}", dict(base=b)) for b in (0.52, 0.60, 0.68, 0.76)], elev, ext)
+
+
+# the receding-ridge tuning for the LOOKING-WEST model (edge-to-edge ridgelines, RIDGE_VIEW),
+# reused everywhere. David picked "fainter" (near_fade up), pushed everything up a touch (base
+# down), and — key — the FAINT far crest was flying too high, so far_gentle/far_smooth make it a
+# soft low arc. Ridges up near the (now slightly smaller) moon, open field below to write in.
+RIDGE_LAYERED = dict(layers=3, spread=0.55, parallax=0.0, amp=0.13, base=0.46,
+                     crest_blur=70, gamma=1.0, tuck=0.35, near_fade=0.15,
+                     far_gentle=0.5, far_smooth=1.0)
+# near_fade was 0.32 ("fainter") — the print showed the layering too even, so the
+# near ridge keeps more of its ink now and the prom ladder above is stretched.
+
+
+def ridge_study(elev, ext, out):
+    """The looking-west ridge (edge-to-edge), tuned toward the photo + David's notes: ridges
+    up near the moon, big field below, faint gentle far crest. Left = chosen; the rest nudge
+    the far crest's gentleness, overall height, and fade so the trade stays visible."""
+    _study(out, [
+        ("a · chosen",        dict(RIDGE_LAYERED)),
+        ("b · far softer",    dict(RIDGE_LAYERED, far_gentle=0.65, far_smooth=1.4)),
+        ("c · higher",        dict(RIDGE_LAYERED, base=0.46)),
+        ("d · less faint",    dict(RIDGE_LAYERED, near_fade=0.18)),
+        ("e · more depth",    dict(RIDGE_LAYERED, spread=0.72, tuck=0.2, near_fade=0.16, far_gentle=0.4)),
+    ], elev, ext)
+
+def warmth_study(elev, ext, out):
+    """The tinted ink back across the temperature range (night -> day), with the
+    new deeper layering and the (bigger) card number — one look at all three
+    matte-side tweaks."""
+    th_h = 1200; th_w = round(th_h * blc.TRIM_W / blc.TRIM_H)
+    pad = 16; f = blc._font(22)
+    panels = [("cool 0.02 (moon)", 0.02, 1), ("0.30", 0.30, 3), ("0.60 (midday)", 0.60, 5),
+              ("0.85 (afternoon)", 0.85, 6), ("warm 0.95 (dusk)", 0.95, 7)]
+    W = len(panels) * (th_w + pad) + pad; Ht = th_h + 2 * pad + 34
+    s = Image.new("RGB", (W, Ht), (30, 30, 34)); d = ImageDraw.Draw(s)
+    for i, (lab, warmth, num) in enumerate(panels):
+        t = ink_tone(warmth)
+        im = back_moon(th_w, th_h, t, elev, ext, **RIDGE_LAYERED)
+        im = stamp_number(im, t, num)
+        x0 = pad + i * (th_w + pad); s.paste(im, (x0, pad))
+        d.text((x0 + 4, pad + th_h + 5), lab, fill=(215, 215, 215), font=f)
+    s.save(out); print("->", out)
+
+
+PHASES = [                                                  # a lunar month across the deck
+    ("new",              0.03, True),
+    ("waxing crescent",  0.25, True),
+    ("first quarter",    0.50, True),
+    ("waxing gibbous",   0.75, True),
+    ("full",             1.00, True),
+    ("waning gibbous",   0.75, False),
+    ("last quarter",     0.50, False),
+    ("waning crescent",  0.25, False),
+]
+
+
+def phase_study(elev, ext, out):
+    """The moon carried through its phases over the chosen layered ridge — the back's
+    natural companion to the front's day->night light cycle."""
+    _study(out, [(lab, dict(**RIDGE_LAYERED, illum=il, wax=wx)) for lab, il, wx in PHASES],
+           elev, ext)
+
+
+def _fade_well(layer, well):
+    """Fade an RGBA line layer's alpha to 0 inside an elliptical panel (with a soft
+    feathered edge), so handwriting has an open field while the art frames it."""
+    W, H = layer.size
+    cx, cy, rx, ry = well[0] * W, well[1] * H, well[2] * W, well[3] * H
+    a = np.asarray(layer).astype(np.float32)
+    yy, xx = np.mgrid[0:H, 0:W]
+    dd = np.sqrt(((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2)
+    m = np.clip((dd - 0.70) / 0.55, 0.0, 1.0)             # clear inside 0.70r, full art by 1.25r
+    a[..., 3] *= m
+    return Image.fromarray(a.astype(np.uint8), "RGBA")
+
+
+def back_contour_field(W, H, t, bbox=None, index_every=200, minor_a=48, index_a=120, well=None):
+    """B/C — real curvas de nivel; index contours a touch heavier. bbox None = the
+    deck window (mountains contoured, valley open); a tight bbox = the zoom. `well`
+    fades an open writing panel into the line art."""
+    bbox = bbox or blc.WINDOW
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(layer)
+    lines = [(c, ln) for c, ln in load_contours() if _in(bbox, ln)]
+    proj = project_ll([ln for _, ln in lines], bbox, W, H)
+    lw = max(1, W // 520)
+    for (cota, _), pts in zip(lines, proj):
+        if len(pts) < 2:
+            continue
+        idx = (cota % index_every == 0)
+        d.line(pts, fill=(*t["line"], index_a if idx else minor_a),
+               width=lw + (1 if idx else 0), joint="curve")
+    if well:
+        layer = _fade_well(layer, well)
+    return Image.alpha_composite(Image.new("RGBA", (W, H), (*t["bg"], 255)), layer).convert("RGB")
+
+
+def back_joy(W, H, t, elev, ext, n_lines=46, overlap=3.6):
+    """D — stacked E-W elevation profiles of the rugged zoom; nearer ridges occlude
+    farther ones (the Unknown-Pleasures look), straight from the DEM. Each profile
+    rises from its OWN base so ridges read as peaks, not a single tilted slope."""
+    img = Image.new("RGB", (W, H), t["bg"]); d = ImageDraw.Draw(img, "RGBA")
+    crop = crop_bbox(elev, ext, ZOOM_JOY)
+    crop = blc.smooth(crop, 1.0)
+    rows = np.linspace(0, crop.shape[0] - 1, n_lines).astype(int)
+    cols = np.linspace(0, crop.shape[1] - 1, min(360, crop.shape[1])).astype(int)
+    grel = float(crop.max() - crop.min()) * 0.62           # shared vertical scale (exaggerated)
+    mx, mtop, mbot = W * 0.11, H * 0.14, H * 0.16
+    step = (H - mtop - mbot) / (n_lines - 1)
+    amp = step * overlap
+    xs = np.linspace(mx, W - mx, len(cols))
+    lw = max(1, W // 560)
+    for i, r in enumerate(rows):                           # back (top) -> front (bottom)
+        prof = crop[r][cols].astype(np.float32)
+        prof = prof - prof.min()                           # each ridge from its own valley floor
+        base = mtop + i * step
+        ys = base - np.clip(prof / (grel + 1e-6), 0, 1.6) * amp
+        pts = list(zip(xs, ys))
+        d.polygon([(xs[0], base + amp), *pts, (xs[-1], base + amp)], fill=(*t["bg"], 255))  # occlude
+        d.line(pts, fill=(*t["line"], 240), width=lw, joint="curve")
+    return img
+
+
+# ---- comparison sheet ------------------------------------------------------
+CONCEPTS = [
+    ("A moon-over-ridge", "moon"),
+    ("B contour-field",   "field"),
+    ("C contour-zoom",    "zoom"),
+    ("C+ zoom+well",      "zoomwell"),
+    ("D joy-division",    "joy"),
+]
+
+
+def render(kind, W, H, tone, elev, ext):
+    t = TONES[tone]
+    if kind == "moon":
+        return back_moon(W, H, t, elev, ext)
+    if kind == "field":
+        return back_contour_field(W, H, t)
+    if kind == "zoom":
+        return back_contour_field(W, H, t, bbox=ZOOM, index_every=100, minor_a=70, index_a=150)
+    if kind == "zoomwell":
+        return back_contour_field(W, H, t, bbox=ZOOM, index_every=100, minor_a=70, index_a=150, well=WELL)
+    if kind == "joy":
+        return back_joy(W, H, t, elev, ext)
+    raise ValueError(kind)
+
+
+def sheet(elev, ext, out):
+    th_h = 620
+    th_w = round(th_h * blc.TRIM_W / blc.TRIM_H)
+    pad, lab = 16, 26
+    cols, rows = len(CONCEPTS), len(TONES)
+    W = cols * (th_w + pad) + pad
+    Ht = lab + rows * (th_h + lab + pad) + pad
+    s = Image.new("RGB", (W, Ht), (30, 30, 34)); d = ImageDraw.Draw(s); f = blc._font(18)
+    for ri, tone in enumerate(TONES):
+        y0 = lab + ri * (th_h + lab + pad) + pad
+        d.text((pad, y0 - 22), f"tone: {tone}", fill=(220, 220, 220), font=f)
+        for ci, (name, kind) in enumerate(CONCEPTS):
+            x0 = pad + ci * (th_w + pad)
+            im = render(kind, th_w, th_h, tone, elev, ext)
+            s.paste(im, (x0, y0))
+            d.text((x0 + 3, y0 + th_h + 3), name, fill=(210, 210, 210), font=f)
+    s.save(out)
+    print("->", out)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--full", action="store_true", help="also dump full-res PNGs of every concept/tone")
+    ap.add_argument("--moon-study", action="store_true", help="ink moon back at a few ridge heights")
+    ap.add_argument("--ridge-study", action="store_true", help="tune the 3 receding ridges toward the photo")
+    ap.add_argument("--phase-study", action="store_true", help="the moon through its phases over the ridge")
+    ap.add_argument("--warmth-study", action="store_true", help="the tinted ink back, cool night -> warm day")
+    ap.add_argument("--layered-back", action="store_true", help="full-res chosen layered back (both tones)")
+    args = ap.parse_args()
+    blc.OUT.mkdir(parents=True, exist_ok=True)
+    elev, ext = blc.load_elev()
+    if args.moon_study:                                    # no contours needed for concept A
+        moon_study(elev, ext, blc.OUT / "cmp_moon_study.png")
+        return
+    if args.ridge_study:
+        ridge_study(elev, ext, blc.OUT / "cmp_ridge_study.png")
+        return
+    if args.phase_study:
+        phase_study(elev, ext, blc.OUT / "cmp_phase_study.png")
+        return
+    if args.warmth_study:
+        warmth_study(elev, ext, blc.OUT / "cmp_warmth_study.png")
+        return
+    if args.layered_back:                                  # full-res chosen back (full moon), both tones
+        for tone in TONES:
+            im = back_moon(blc.TRIM_W, blc.TRIM_H, TONES[tone], elev, ext, **RIDGE_LAYERED)
+            p = blc.OUT / f"back_moonlayers_{tone}.png"
+            im.save(p); print("->", p)
+        return
+    print("contours: loading (~140MB) ...")
+    print(f"contours: {len(load_contours())} polylines")
+    sheet(elev, ext, blc.OUT / "cmp_backs.png")
+    if args.full:
+        TW, TH = blc.TRIM_W, blc.TRIM_H
+        for name, kind in CONCEPTS:
+            for tone in TONES:
+                im = render(kind, TW, TH, tone, elev, ext)
+                p = blc.OUT / f"back_{kind}_{tone}.png"
+                im.save(p); print("->", p)
+
+
+if __name__ == "__main__":
+    main()
